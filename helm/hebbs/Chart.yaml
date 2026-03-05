@@ -1,0 +1,26 @@
+apiVersion: v2
+name: hebbs
+description: >-
+  HEBBS cognitive memory engine for AI agents. Sub-10ms recall, multi-strategy
+  retrieval, background consolidation. Single-binary Rust server with embedded
+  RocksDB, ONNX embeddings, and gRPC/HTTP APIs.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://hebbs.ai
+sources:
+  - https://github.com/hebbs-ai/hebbs
+keywords:
+  - ai
+  - agents
+  - memory
+  - cognitive
+  - vector-database
+  - grpc
+  - embeddings
+  - rocksdb
+  - onnx
+maintainers:
+  - name: HEBBS
+    email: parag@hebbs.ai
+    url: https://hebbs.ai

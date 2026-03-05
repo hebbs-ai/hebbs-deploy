@@ -1,0 +1,181 @@
+# HEBBS Prometheus Alerting Rules
+# Import into Prometheus via rule_files configuration or operator PrometheusRule CRD.
+
+groups:
+  - name: hebbs.rules
+    interval: 30s
+    rules:
+      # ---------------------------------------------------------------
+      # 1. HebbsDown — instance is unreachable
+      # ---------------------------------------------------------------
+      - alert: HebbsDown
+        expr: up{job="hebbs"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: hebbs
+        annotations:
+          summary: "HEBBS instance {{ $labels.instance }} is down"
+          description: >-
+            The HEBBS process at {{ $labels.instance }} has been unreachable
+            for more than 2 minutes. gRPC and HTTP endpoints are not responding.
+            Immediate investigation required — all memory operations are unavailable.
+          runbook_url: "https://github.com/hebbs-ai/hebbs-deploy/blob/main/runbooks/operations.md#incident-instance-unreachable"
+
+      # ---------------------------------------------------------------
+      # 2. HebbsHighLatency — remember p99 exceeds 50ms
+      # ---------------------------------------------------------------
+      - alert: HebbsHighLatency
+        expr: >-
+          histogram_quantile(0.99,
+            sum by (le, instance) (
+              rate(hebbs_operation_duration_seconds_bucket{job="hebbs", operation="remember"}[5m])
+            )
+          ) > 0.050
+        for: 5m
+        labels:
+          severity: warning
+          service: hebbs
+        annotations:
+          summary: "HEBBS remember p99 latency above 50ms on {{ $labels.instance }}"
+          description: >-
+            The 99th-percentile latency for the `remember` operation on
+            {{ $labels.instance }} has exceeded 50ms for 5 minutes
+            (current value: {{ $value | humanizeDuration }}).
+            This breaches the latency SLO. Common causes: RocksDB compaction
+            pressure, HNSW index saturation, or resource contention.
+          runbook_url: "https://github.com/hebbs-ai/hebbs-deploy/blob/main/runbooks/operations.md#incident-latency-degradation"
+
+      # ---------------------------------------------------------------
+      # 3. HebbsHighErrorRate — error rate exceeds 5%
+      # ---------------------------------------------------------------
+      - alert: HebbsHighErrorRate
+        expr: >-
+          (
+            sum by (instance) (rate(hebbs_errors_total{job="hebbs"}[5m]))
+            /
+            (
+              sum by (instance) (rate(hebbs_grpc_requests_total{job="hebbs"}[5m]))
+              +
+              sum by (instance) (rate(hebbs_http_requests_total{job="hebbs"}[5m]))
+            )
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: hebbs
+        annotations:
+          summary: "HEBBS error rate above 5% on {{ $labels.instance }}"
+          description: >-
+            More than 5% of requests to {{ $labels.instance }} are failing
+            (current rate: {{ $value | humanizePercentage }}).
+            Check hebbs_errors_total by operation and error_type for breakdown.
+          runbook_url: "https://github.com/hebbs-ai/hebbs-deploy/blob/main/runbooks/operations.md#incident-elevated-error-rate"
+
+      # ---------------------------------------------------------------
+      # 4. HebbsDiskAlmostFull — disk usage above 85%
+      # ---------------------------------------------------------------
+      - alert: HebbsDiskAlmostFull
+        expr: hebbs_disk_usage_ratio{job="hebbs"} > 0.85
+        for: 10m
+        labels:
+          severity: warning
+          service: hebbs
+        annotations:
+          summary: "HEBBS disk usage above 85% on {{ $labels.instance }}"
+          description: >-
+            Disk utilization on {{ $labels.instance }} has exceeded 85%
+            (current: {{ $value | humanizePercentage }}).
+            RocksDB requires free space for compaction. Plan capacity expansion
+            or run a forget sweep to reclaim space before hitting the critical
+            threshold at 95%.
+          runbook_url: "https://github.com/hebbs-ai/hebbs-deploy/blob/main/runbooks/operations.md#incident-disk-capacity"
+
+      # ---------------------------------------------------------------
+      # 5. HebbsDiskFull — disk usage above 95%
+      # ---------------------------------------------------------------
+      - alert: HebbsDiskFull
+        expr: hebbs_disk_usage_ratio{job="hebbs"} > 0.95
+        for: 5m
+        labels:
+          severity: critical
+          service: hebbs
+        annotations:
+          summary: "HEBBS disk critically full on {{ $labels.instance }}"
+          description: >-
+            Disk utilization on {{ $labels.instance }} has exceeded 95%
+            (current: {{ $value | humanizePercentage }}).
+            RocksDB will stall writes when disk is exhausted, causing cascading
+            failures. Immediate action required: expand volume or run emergency
+            forget sweep.
+          runbook_url: "https://github.com/hebbs-ai/hebbs-deploy/blob/main/runbooks/operations.md#incident-disk-capacity"
+
+      # ---------------------------------------------------------------
+      # 6. HebbsReflectStalled — no reflect runs in 48 hours
+      # ---------------------------------------------------------------
+      - alert: HebbsReflectStalled
+        expr: >-
+          (time() - hebbs_reflect_last_success_timestamp_seconds{job="hebbs"}) > 172800
+          and
+          hebbs_memory_count{job="hebbs"} > 0
+        for: 30m
+        labels:
+          severity: warning
+          service: hebbs
+        annotations:
+          summary: "HEBBS reflect pipeline stalled on {{ $labels.instance }}"
+          description: >-
+            No successful reflect run has completed on {{ $labels.instance }}
+            in over 48 hours, despite having {{ with query "hebbs_memory_count" }}{{ . | first | value }}{{ end }} stored memories.
+            The reflect pipeline generates insights from accumulated memories;
+            a stall means insights are going stale. Check reflect scheduler
+            configuration and LLM provider connectivity.
+          runbook_url: "https://github.com/hebbs-ai/hebbs-deploy/blob/main/runbooks/operations.md#incident-reflect-pipeline-stall"
+
+      # ---------------------------------------------------------------
+      # 7. HebbsCompactionStall — RocksDB compaction stalled
+      # ---------------------------------------------------------------
+      - alert: HebbsCompactionStall
+        expr: hebbs_rocksdb_compaction_pending{job="hebbs"} > 10
+        for: 15m
+        labels:
+          severity: warning
+          service: hebbs
+        annotations:
+          summary: "RocksDB compaction backlog on {{ $labels.instance }}"
+          description: >-
+            The RocksDB compaction pending count on {{ $labels.instance }}
+            has exceeded 10 for 15 minutes (current: {{ $value }}).
+            A growing compaction backlog increases read amplification and
+            memory usage. Consider tuning max_background_jobs or checking
+            for I/O bottlenecks.
+          runbook_url: "https://github.com/hebbs-ai/hebbs-deploy/blob/main/runbooks/operations.md#incident-latency-degradation"
+
+      # ---------------------------------------------------------------
+      # 8. HebbsAuthFailureSpike — elevated auth failures
+      # ---------------------------------------------------------------
+      - alert: HebbsAuthFailureSpike
+        expr: >-
+          (
+            sum by (instance) (rate(hebbs_errors_total{job="hebbs", error_type="auth_failure"}[5m]))
+            /
+            (
+              sum by (instance) (rate(hebbs_grpc_requests_total{job="hebbs"}[5m]))
+              +
+              sum by (instance) (rate(hebbs_http_requests_total{job="hebbs"}[5m]))
+              + 1
+            )
+          ) > 0.10
+        for: 5m
+        labels:
+          severity: warning
+          service: hebbs
+        annotations:
+          summary: "High authentication failure rate on {{ $labels.instance }}"
+          description: >-
+            More than 10% of requests to {{ $labels.instance }} are failing
+            authentication (current rate: {{ $value | humanizePercentage }}).
+            This could indicate credential misconfiguration, key rotation issues,
+            or a brute-force attempt. Review auth_failure errors in the error
+            breakdown and check client configurations.
+          runbook_url: "https://github.com/hebbs-ai/hebbs-deploy/blob/main/runbooks/operations.md#incident-authentication-failure-spike"

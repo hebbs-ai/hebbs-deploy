@@ -1,0 +1,64 @@
+
+================================================================================
+  HEBBS — Cognitive Memory Engine for AI Agents
+================================================================================
+
+Your HEBBS instance "{{ include "hebbs.fullname" . }}" has been deployed.
+
+{{- if .Values.initContainer.enabled }}
+
+NOTE: The init container will download the ONNX embedding model (~33 MB) on
+first startup. The pod will not become ready until the download completes.
+{{- end }}
+
+--- Accessing HEBBS ---
+
+1. gRPC (port {{ .Values.service.grpcPort }}):
+
+   kubectl port-forward svc/{{ include "hebbs.fullname" . }} {{ .Values.service.grpcPort }}:{{ .Values.service.grpcPort }}
+
+   Then connect your client:
+     from hebbs import HEBBS
+     e = HEBBS("localhost:{{ .Values.service.grpcPort }}")
+
+2. HTTP / REST (port {{ .Values.service.httpPort }}):
+
+   kubectl port-forward svc/{{ include "hebbs.fullname" . }} {{ .Values.service.httpPort }}:{{ .Values.service.httpPort }}
+
+   Health check:
+     curl http://localhost:{{ .Values.service.httpPort }}/v1/health/ready
+
+{{- if .Values.metrics.enabled }}
+
+3. Prometheus Metrics:
+
+   curl http://localhost:{{ .Values.service.httpPort }}/v1/metrics
+{{- if .Values.metrics.serviceMonitor.enabled }}
+
+   A ServiceMonitor has been created. Verify Prometheus is scraping:
+     kubectl get servicemonitor {{ include "hebbs.fullname" . }}
+{{- end }}
+{{- end }}
+
+{{- if .Values.ingress.enabled }}
+
+4. Ingress:
+{{- range .Values.ingress.hosts }}
+   {{ .host }}
+{{- end }}
+{{- end }}
+
+--- Verifying the deployment ---
+
+  kubectl get pods -l "app.kubernetes.io/instance={{ .Release.Name }}"
+  kubectl logs -f {{ include "hebbs.fullname" . }}-0
+
+--- Configuration ---
+
+  Config is mounted from ConfigMap "{{ include "hebbs.fullname" . }}-config" at
+  /etc/hebbs/hebbs.toml.  Edit values.yaml and run `helm upgrade` to change.
+
+  Environment variable overrides use the HEBBS_ prefix:
+    HEBBS_SERVER__GRPC_PORT=6380  HEBBS_STORAGE__BLOCK_CACHE_MB=512
+
+================================================================================

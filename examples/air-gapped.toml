@@ -1,0 +1,109 @@
+# HEBBS Air-Gapped Configuration
+#
+# For deployments with NO outbound internet access (classified networks,
+# on-premises environments behind strict firewalls, edge nodes).
+#
+# Key differences from standard deployment:
+#   1. Embedding model must be pre-provisioned on disk (no download).
+#   2. Reflect pipeline is disabled (requires external LLM API).
+#   3. All functionality is self-contained within the HEBBS binary.
+#
+# ── Pre-provisioning the Embedding Model ────────────────────────────────────
+#
+# HEBBS uses BGE-small-en-v1.5 in ONNX format for embedding. In a normal
+# deployment the model is downloaded automatically on first start. In an
+# air-gapped environment you must pre-download it on a connected machine
+# and copy it to the target host.
+#
+# On a connected machine:
+#
+#   # Download the ONNX model files
+#   git lfs install
+#   git clone https://huggingface.co/BAAI/bge-small-en-v1.5 /tmp/bge-small
+#
+#   # Convert to ONNX if not already present (or download pre-converted):
+#   #   pip install optimum[onnxruntime]
+#   #   optimum-cli export onnx --model BAAI/bge-small-en-v1.5 /tmp/bge-small-onnx
+#
+#   # Copy the .onnx file to your deployment artifact:
+#   cp /tmp/bge-small-onnx/model.onnx /your-artifact-dir/bge-small-en-v1.5.onnx
+#
+# Then transfer the file to the air-gapped host at the path specified in
+# [embedding].model_path below. The file must be readable by the HEBBS
+# process user.
+#
+# ── Docker / Kubernetes ─────────────────────────────────────────────────────
+#
+# When using the HEBBS Docker image in air-gapped environments:
+#   1. Pull the image on a connected machine: docker pull ghcr.io/hebbs-ai/hebbs:latest
+#   2. Save it: docker save ghcr.io/hebbs-ai/hebbs:latest -o hebbs.tar
+#   3. Transfer hebbs.tar and the ONNX model to the air-gapped host.
+#   4. Load: docker load -i hebbs.tar
+#   5. Mount the model file into the container at /models/.
+#
+# Usage:
+#   hebbs-server --config air-gapped.toml
+
+[server]
+grpc_port = 6380
+http_port = 6381
+bind_address = "0.0.0.0"
+max_connections = 1000
+request_timeout_ms = 30000
+max_blocking_threads = 256
+shutdown_timeout_secs = 15
+max_request_size_bytes = 1048576
+
+[storage]
+data_dir = "/data"
+block_cache_mb = 256
+write_buffer_mb = 64
+
+[embedding]
+dimensions = 384
+max_batch_size = 256
+
+# Path to the pre-provisioned ONNX model file. HEBBS will load this
+# directly instead of attempting to download from the internet.
+# This file MUST exist and be readable before starting the server.
+# If it is missing or corrupt, the server will fail to start with a
+# clear error message referencing this path.
+model_path = "/models/bge-small-en-v1.5.onnx"
+
+[decay]
+enabled = true
+half_life_days = 30
+sweep_interval_secs = 3600
+batch_size = 10000
+auto_forget_threshold = 0.01
+
+[reflect]
+# DISABLED — the reflect pipeline requires outbound HTTPS access to an LLM
+# provider (OpenAI, Anthropic, etc.) which is not available in an air-gapped
+# environment. Enabling this will cause background errors and wasted cycles.
+#
+# If you have an on-premises LLM deployment accessible within your network,
+# you can enable reflect and configure a custom provider pointing to your
+# internal endpoint.
+enabled = false
+proposal_provider = "mock"
+validation_provider = "mock"
+
+[logging]
+level = "info"
+format = "json"
+
+[metrics]
+enabled = true
+endpoint = "/v1/metrics"
+
+[auth]
+enabled = true
+
+[tenancy]
+mode = "single"
+
+[rate_limit]
+enabled = true
+requests_per_second = 100
+burst_size = 50

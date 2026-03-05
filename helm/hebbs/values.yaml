@@ -1,0 +1,319 @@
+# =============================================================================
+# HEBBS Helm Chart — values.yaml
+# =============================================================================
+# Cognitive memory engine for AI agents.  This file contains every tunable
+# parameter for deploying HEBBS on Kubernetes.  Defaults are production-ready
+# for a single-instance deployment handling up to ~10M memories on a 4-vCPU /
+# 8 GiB node.
+#
+# Sizing guidance (approximate):
+#   RAM ≈ N * (metadata_bytes + D*4 + hnsw_overhead)
+#   For 384-dim embeddings: ~2 KB per memory → 1M memories ≈ 2 GB
+#   RocksDB block cache + write buffer should fit in container memory limit
+#   minus ~512 Mi for the process and ONNX runtime.
+#
+# IOPS guidance:
+#   remember() is WAL-append-heavy — provision ≥ 3000 write IOPS for 10k ops/s.
+#   recall() is read-heavy — provision ≥ 5000 read IOPS for sustained load.
+#   Use gp3 (AWS), pd-ssd (GCP), or Premium SSD (Azure) for consistent IOPS.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Replica count
+# ---------------------------------------------------------------------------
+# Each replica is an independent HEBBS instance with its own RocksDB data
+# directory.  Replicas do NOT form a cluster and do NOT replicate data between
+# each other.  Increase replicas for per-tenant isolation or load sharding,
+# not for high availability.
+replicaCount: 1
+
+# ---------------------------------------------------------------------------
+# Container image
+# ---------------------------------------------------------------------------
+image:
+  repository: ghcr.io/hebbs-ai/hebbs
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# Override the release name / fullname used in resource names.
+nameOverride: ""
+fullnameOverride: ""
+
+# ---------------------------------------------------------------------------
+# Service account
+# ---------------------------------------------------------------------------
+serviceAccount:
+  create: true
+  # Annotations to add (e.g. for IAM roles).
+  annotations: {}
+  # If not set, the fullname template is used.
+  name: ""
+
+# ---------------------------------------------------------------------------
+# Pod-level overrides
+# ---------------------------------------------------------------------------
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  fsGroup: 1000
+  runAsNonRoot: true
+
+securityContext:
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# ---------------------------------------------------------------------------
+# Service
+# ---------------------------------------------------------------------------
+service:
+  type: ClusterIP
+  grpcPort: 6380
+  httpPort: 6381
+
+# ---------------------------------------------------------------------------
+# Ingress
+# ---------------------------------------------------------------------------
+# Disabled by default.  When enabling for gRPC traffic through NGINX Ingress,
+# set the annotations shown below.  For HTTP-only access the defaults are fine.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # For NGINX Ingress with gRPC:
+    # nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts: []
+    # - host: hebbs.example.com
+    #   paths:
+    #     - path: /
+    #       pathType: Prefix
+    #       port: http            # "grpc" or "http"
+  tls: []
+    # - secretName: hebbs-tls
+    #   hosts:
+    #     - hebbs.example.com
+
+# ---------------------------------------------------------------------------
+# Resource requests and limits
+# ---------------------------------------------------------------------------
+# Formula for memory sizing:
+#   limit ≥ block_cache_mb + write_buffer_mb + (N_memories * 2KB) + 512Mi headroom
+#   Default: 256 + 64 + headroom ≈ 2Gi covers ~500K memories comfortably.
+#   For 10M memories, increase to 8–12 Gi and bump block_cache_mb accordingly.
+#
+# CPU sizing:
+#   ONNX embedding uses all available cores for batch inference.
+#   2 cores handles ~5K remember/s; 4 cores handles ~15K remember/s.
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+# ---------------------------------------------------------------------------
+# Persistent storage for RocksDB
+# ---------------------------------------------------------------------------
+# HEBBS stores all data in RocksDB under /data inside the container.  This
+# volume MUST survive pod restarts.  Use a StorageClass backed by low-latency
+# SSD storage.  Avoid network-attached HDD (high latency kills p99s).
+#
+# Sizing:
+#   Disk ≈ N_memories * ~4KB (with compaction amplification).
+#   20 Gi covers ~5M memories.  100 Gi covers ~25M memories.
+persistence:
+  enabled: true
+  # Set to a StorageClass name, or "" to use the cluster default.
+  storageClass: ""
+  size: 20Gi
+  accessMode: ReadWriteOnce
+
+# ---------------------------------------------------------------------------
+# HEBBS configuration (hebbs.toml)
+# ---------------------------------------------------------------------------
+# This block is rendered verbatim into a ConfigMap and mounted as
+# /etc/hebbs/hebbs.toml.  Modify sections below to tune the engine.
+# Environment variable overrides use the HEBBS_ prefix:
+#   HEBBS_SERVER__GRPC_PORT=6380  HEBBS_STORAGE__BLOCK_CACHE_MB=512  etc.
+config: |
+  [server]
+  grpc_port = 6380
+  http_port = 6381
+  bind_address = "0.0.0.0"
+  max_connections = 1024
+  request_timeout_ms = 30000
+  max_blocking_threads = 512
+  shutdown_timeout_secs = 5
+  max_request_size_bytes = 4194304
+
+  [storage]
+  data_dir = "/data"
+  block_cache_mb = 256
+  write_buffer_mb = 64
+
+  [embedding]
+  # model_path is set automatically when the init container downloads the model.
+  model_path = "/models/model.onnx"
+  dimensions = 384
+  max_batch_size = 256
+
+  [decay]
+  enabled = true
+  half_life_days = 30
+  sweep_interval_secs = 3600
+  batch_size = 10000
+  auto_forget_threshold = 0.01
+
+  [reflect]
+  enabled = false
+  # Uncomment and configure to enable background consolidation:
+  # proposal_provider = "openai"
+  # proposal_model = "gpt-4o-mini"
+  # validation_provider = "anthropic"
+  # validation_model = "claude-sonnet-4-20250514"
+  # trigger_new_memories = 50
+  # trigger_interval_secs = 86400
+
+  [logging]
+  level = "info"
+  format = "json"
+
+  [metrics]
+  enabled = true
+  endpoint = "/v1/metrics"
+
+  [auth]
+  enabled = true
+  # keys_file = "/etc/hebbs/keys.json"
+
+  [tenancy]
+  max_tenants = 128
+  max_memories_per_tenant = 10000000
+  hnsw_eviction_secs = 600
+  max_loaded_hnsw = 32
+
+  [rate_limit]
+  enabled = true
+  write_rate = 10000
+  read_rate = 50000
+
+# ---------------------------------------------------------------------------
+# Secrets (LLM API keys for the reflect pipeline)
+# ---------------------------------------------------------------------------
+# Keys listed here are created as a Kubernetes Secret and injected as env vars.
+# Leave empty if reflect is disabled or you manage secrets externally (e.g. via
+# Vault, Sealed Secrets, or External Secrets Operator).
+secrets:
+  apiKeys: {}
+    # OPENAI_API_KEY: "sk-..."
+    # ANTHROPIC_API_KEY: "sk-ant-..."
+
+# ---------------------------------------------------------------------------
+# Auth configuration
+# ---------------------------------------------------------------------------
+auth:
+  enabled: true
+  # Inline JSON string for the API key file, or leave empty and mount via
+  # an external Secret.
+  keysFile: ""
+
+# ---------------------------------------------------------------------------
+# Metrics and monitoring
+# ---------------------------------------------------------------------------
+# HEBBS exposes Prometheus metrics at GET /v1/metrics on the HTTP port.
+# Metrics include:
+#   hebbs_operation_duration_seconds  (histogram: operation, status)
+#   hebbs_memory_count               (gauge)
+#   hebbs_active_subscriptions       (gauge)
+#   hebbs_reflect_runs_total         (counter: status)
+#   hebbs_errors_total               (counter: operation, error_type)
+#   hebbs_grpc_requests_total        (counter: method, status)
+#   hebbs_http_requests_total        (counter: method, path, status_code)
+metrics:
+  enabled: true
+  serviceMonitor:
+    # Requires the Prometheus Operator CRDs to be installed.
+    enabled: true
+    # Scrape interval for the ServiceMonitor.
+    interval: 15s
+    # Additional labels for the ServiceMonitor (to match Prometheus selectors).
+    additionalLabels: {}
+
+# ---------------------------------------------------------------------------
+# Init container — ONNX model download
+# ---------------------------------------------------------------------------
+# On first run, HEBBS needs the BGE-small-en-v1.5 ONNX model (~33 MB).
+# The init container downloads it into an emptyDir shared with the main
+# container so the model is available at /models/model.onnx.
+initContainer:
+  enabled: true
+  image: curlimages/curl:8.7.1
+  modelUrl: "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx"
+
+# ---------------------------------------------------------------------------
+# Health probes
+# ---------------------------------------------------------------------------
+# Startup probe: allows up to 5 minutes for initial model loading and RocksDB
+#   recovery before liveness kicks in.
+# Liveness probe: verifies the gRPC server is responsive.
+# Readiness probe: verifies the HTTP health endpoint reports ready.
+probes:
+  startup:
+    enabled: true
+    httpGet:
+      path: /v1/health/ready
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    failureThreshold: 30
+    timeoutSeconds: 5
+  liveness:
+    enabled: true
+    httpGet:
+      path: /v1/health/ready
+      port: http
+    periodSeconds: 10
+    failureThreshold: 3
+    timeoutSeconds: 5
+  readiness:
+    enabled: true
+    httpGet:
+      path: /v1/health/ready
+      port: http
+    periodSeconds: 5
+    failureThreshold: 3
+    timeoutSeconds: 3
+
+# ---------------------------------------------------------------------------
+# Pod disruption budget
+# ---------------------------------------------------------------------------
+# Only meaningful when replicaCount > 1.
+podDisruptionBudget:
+  enabled: false
+  # minAvailable: 1
+  # maxUnavailable: 1
+
+# ---------------------------------------------------------------------------
+# Scheduling constraints
+# ---------------------------------------------------------------------------
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# ---------------------------------------------------------------------------
+# Termination grace period
+# ---------------------------------------------------------------------------
+# HEBBS flushes the WAL and closes RocksDB on SIGTERM.  The default server
+# shutdown_timeout_secs is 5s, so 30s gives ample headroom.
+terminationGracePeriodSeconds: 30

@@ -1,0 +1,92 @@
+# HEBBS High-Throughput Configuration
+#
+# Tuned for environments with heavy concurrent read/write traffic:
+#   - Large memory datasets (5M+ memories)
+#   - High concurrency (1000+ simultaneous clients)
+#   - Write-heavy ingestion pipelines alongside real-time recall
+#
+# Hardware assumptions:
+#   - 16+ CPU cores
+#   - 32+ GB RAM (at least 16 GB available for HEBBS)
+#   - NVMe SSD storage
+#
+# Usage:
+#   hebbs-server --config high-throughput.toml
+
+[server]
+grpc_port = 6380
+http_port = 6381
+bind_address = "0.0.0.0"
+
+# Raised from 1000 to handle many concurrent clients without dropping
+# connections. Each connection costs ~16 KB; 5000 × 16 KB ≈ 80 MB.
+max_connections = 5000
+
+request_timeout_ms = 30000
+
+# Doubled from 256 to prevent thread starvation during concurrent
+# RocksDB reads and embedding forward passes. Size this to ~2× physical
+# cores, capped at 512 to avoid excessive context-switching overhead.
+max_blocking_threads = 512
+
+shutdown_timeout_secs = 30
+
+# Increased to 4 MiB for workloads that ingest longer documents.
+max_request_size_bytes = 4194304
+
+[storage]
+data_dir = "/data"
+
+# Doubled from 256 MB. Keeps more SST blocks in memory, reducing disk I/O
+# on read-heavy workloads. Size to ~50% of available RAM minus OS/embedding
+# overhead. Monitor block_cache_hit_ratio — target ≥ 95%.
+block_cache_mb = 512
+
+# Doubled from 64 MB. Larger write buffers absorb burst ingestion with
+# fewer flushes, reducing write amplification. Trade-off: longer WAL
+# replay on crash recovery (expect ~2-4 s recovery at 128 MB).
+write_buffer_mb = 128
+
+[embedding]
+dimensions = 384
+max_batch_size = 256
+
+[decay]
+enabled = true
+half_life_days = 30
+
+# Swept every 5 minutes instead of every hour to keep salience scores
+# fresh under high ingestion rates. At 10k batch size this means ~50k
+# memories recomputed per 5-minute window.
+sweep_interval_secs = 300
+
+batch_size = 10000
+auto_forget_threshold = 0.01
+
+[reflect]
+enabled = false
+proposal_provider = "mock"
+validation_provider = "mock"
+
+[logging]
+level = "info"
+format = "json"
+
+[metrics]
+enabled = true
+endpoint = "/v1/metrics"
+
+[auth]
+enabled = true
+
+[tenancy]
+mode = "single"
+
+[rate_limit]
+enabled = true
+
+# Raised from 100/s to accommodate high-throughput clients.
+requests_per_second = 500
+
+# Larger burst to absorb ingestion pipeline spikes.
+burst_size = 200

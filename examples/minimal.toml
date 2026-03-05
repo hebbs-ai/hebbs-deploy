@@ -1,0 +1,25 @@
+# HEBBS Minimal Configuration
+#
+# This file shows the absolute minimum configuration needed to run HEBBS.
+# All parameters not specified here use their built-in defaults, which are
+# suitable for development and small single-tenant deployments.
+#
+# Usage:
+#   hebbs-server --config minimal.toml
+#
+# Defaults applied when not overridden:
+#   gRPC port:     6380
+#   HTTP port:     6381
+#   Bind address:  0.0.0.0
+#   Embedding dim: 384 (BGE-small-en-v1.5)
+#   Decay:         enabled, 30-day half-life
+#   Reflect:       disabled
+#   Logging:       info level, JSON format
+#   Metrics:       enabled at /v1/metrics
+#   Auth:          enabled
+
+[storage]
+# The only setting you almost always need to change: where HEBBS stores its
+# RocksDB data, WAL, and embedding model cache. Must be writable and on a
+# filesystem that supports fsync (ext4, xfs, APFS — not NFS).
+data_dir = "/var/lib/hebbs"
