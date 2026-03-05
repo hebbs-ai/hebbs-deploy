@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <rect width="1280" height="640" fill="#0A0A0B"/>
+
+  <!-- Subtle radial glow behind the icon -->
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="42%" r="25%">
+      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#F59E0B" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1280" height="640" fill="url(#glow)"/>
+
+  <!-- Icon: two connected nodes (scaled up from favicon) -->
+  <circle cx="590" cy="240" r="28" fill="#F59E0B"/>
+  <circle cx="690" cy="240" r="28" fill="#F59E0B"/>
+  <line x1="618" y1="240" x2="662" y2="240" stroke="#F59E0B" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- HEBBS wordmark -->
+  <text x="640" y="360" text-anchor="middle" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="72" font-weight="700" letter-spacing="8" fill="#EDEDEE">HEBBS</text>
+
+  <!-- Tagline -->
+  <text x="640" y="410" text-anchor="middle" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="24" font-weight="400" fill="#8B8B8E">The memory engine for AI agents</text>
+</svg>
