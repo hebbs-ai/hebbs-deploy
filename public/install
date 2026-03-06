@@ -74,18 +74,38 @@ resolve_version() {
 
     info "Resolving latest version..."
 
+    RELEASE_JSON=""
+    RELEASE_HTTP_CODE=""
+
     if command -v curl > /dev/null 2>&1; then
-        VERSION=$(curl -sSf "https://api.github.com/repos/${REPO}/releases/latest" \
-            | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//')
+        RELEASE_HTTP_CODE=$(curl -sS -o /tmp/hebbs_release.json -w '%{http_code}' \
+            "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null) || true
+        if [ -f /tmp/hebbs_release.json ]; then
+            RELEASE_JSON=$(cat /tmp/hebbs_release.json)
+            rm -f /tmp/hebbs_release.json
+        fi
     elif command -v wget > /dev/null 2>&1; then
-        VERSION=$(wget -qO- "https://api.github.com/repos/${REPO}/releases/latest" \
-            | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//')
+        RELEASE_JSON=$(wget -qO- "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null) || true
     else
         die "Neither curl nor wget found. Install one of them and retry."
     fi
 
+    if [ "$RELEASE_HTTP_CODE" = "404" ] || [ -z "$RELEASE_JSON" ]; then
+        echo ""
+        err "No releases found for ${REPO}."
+        echo ""
+        echo "  HEBBS has not published any binary releases yet."
+        echo "  Check https://github.com/${REPO}/releases for updates,"
+        echo "  or build from source: https://github.com/${REPO}#building-from-source"
+        echo ""
+        exit 1
+    fi
+
+    VERSION=$(printf '%s' "$RELEASE_JSON" \
+        | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//')
+
     if [ -z "$VERSION" ]; then
-        die "Could not determine latest version. Set HEBBS_VERSION manually and retry."
+        die "Could not parse version from release metadata. Set HEBBS_VERSION manually and retry."
     fi
 
     info "Latest version: ${VERSION}"
