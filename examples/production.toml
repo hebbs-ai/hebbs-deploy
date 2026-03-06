@@ -105,6 +105,12 @@ write_buffer_mb = 64
 # ─────────────────────────────────────────────────────────────────────────────
 [embedding]
 
+# Embedding provider: "onnx" (real ONNX Runtime model) or "mock" (hash-based,
+# testing only). Default: "onnx"
+# The ONNX provider loads BGE-small-en-v1.5 by default and auto-downloads
+# model files from HuggingFace on first start.
+provider = "onnx"
+
 # Dimensionality of the embedding vectors.
 # Default: 384 (matches BGE-small-en-v1.5)
 # This MUST match the model you deploy. Mismatched dimensions corrupt the
@@ -119,6 +125,12 @@ dimensions = 384
 # inference, 256 is a good balance. Setting this above the model's
 # positional encoding limit has no benefit.
 max_batch_size = 256
+
+# Whether to auto-download model files from HuggingFace on first start.
+# Default: true
+# Set to false for air-gapped deployments where model files are
+# pre-provisioned on disk.
+auto_download = true
 
 # ─────────────────────────────────────────────────────────────────────────────
 # [decay] — Temporal decay and auto-forget
@@ -178,10 +190,12 @@ enabled = false
 
 # Provider used to generate insight proposals from memory clusters.
 # Default: "mock" (returns no-op proposals — safe for testing)
-# Production values: "openai", "anthropic", or a custom provider name
-# matching a registered plugin. Changing this while reflect is enabled
-# takes effect on the next proposal cycle.
+# Production values: "openai", "anthropic", "gemini", "ollama"
+# Env vars for API keys: OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY
+# Changing this while reflect is enabled takes effect on the next cycle.
 proposal_provider = "mock"
+# proposal_model = "gpt-4o"         # for openai
+# proposal_model = "gemini-2.0-flash" # for gemini
 
 # Provider used to validate and score proposed insights before storage.
 # Default: "mock"
