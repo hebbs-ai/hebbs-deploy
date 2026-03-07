@@ -8,17 +8,22 @@ This guide walks you through connecting to a HEBBS server, storing memories, and
 ## Prerequisites
 
 - HEBBS Python SDK installed (`pip install hebbs`)
-- A running HEBBS server (default: `localhost:50051`)
+- A running HEBBS server (default: `localhost:6380`)
+- Your API key exported: `export HEBBS_API_KEY="hb_..."`
 
 ## Full Example
 
 ```python
 import asyncio
+import os
 from hebbs import HebbsClient, MemoryKind
 
 async def main():
     # Connect using a context manager for automatic cleanup
-    async with HebbsClient.connect("localhost:50051") as client:
+    async with HebbsClient.connect(
+        "localhost:6380",
+        api_key=os.environ.get("HEBBS_API_KEY"),
+    ) as client:
 
         # Check server health
         health = await client.health()

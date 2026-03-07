@@ -16,6 +16,16 @@ hebbs-server
 - **gRPC:** 6380
 - **HTTP/REST:** 6381
 
+## Bootstrap API Key
+
+On first start, HEBBS auto-generates a bootstrap API key and prints it to the console. Save it and export it for the CLI:
+
+```bash
+export HEBBS_API_KEY="hb_..."
+```
+
+To disable auth for local development: `HEBBS_AUTH_ENABLED=false hebbs-server`.
+
 ## Health Check
 
 Verify the server is running:

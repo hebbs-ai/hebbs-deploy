@@ -46,7 +46,31 @@ curl http://localhost:6381/v1/health/ready
 
 HEBBS runs with sensible defaults. To customize ports, storage, embedding models, or enable reflection, see the [Configuration Reference](/server/configuration/).
 
-## 3. Store a Memory
+## 3. Set Your API Key
+
+On first start, HEBBS generates a bootstrap API key and prints it to the console:
+
+```
+╔══════════════════════════════════════════════════════════════════╗
+║  BOOTSTRAP API KEY (save this -- it will not be shown again)    ║
+║                                                                  ║
+║  hb_TwHTOWQwvTNAUgREpj-6nKaOIzgKkgZW5nDcjAaNaRU              ║
+╚══════════════════════════════════════════════════════════════════╝
+```
+
+**Save this key.** It will not be shown again. Export it so the CLI and SDKs can authenticate:
+
+```bash
+export HEBBS_API_KEY="hb_..."
+```
+
+To make this permanent, add that line to your `~/.zshrc` or `~/.bashrc`.
+
+:::tip
+For local development, you can disable auth entirely with `HEBBS_AUTH_ENABLED=false hebbs-server`. See the [Authentication section](/server/configuration/#authentication) for details.
+:::
+
+## 4. Store a Memory
 
 Use the CLI to store your first memory:
 
@@ -54,7 +78,7 @@ Use the CLI to store your first memory:
 hebbs-cli remember "Met with the Acme Corp team about Q2 roadmap."
 ```
 
-## 4. Recall It
+## 5. Recall It
 
 Recall the memory using a natural language cue:
 
@@ -62,7 +86,7 @@ Recall the memory using a natural language cue:
 hebbs-cli recall "Acme meeting"
 ```
 
-## 5. Try the Python SDK
+## 6. Try the Python SDK
 
 Install the Python SDK:
 
@@ -72,10 +96,11 @@ pip install hebbs
 
 ```python
 import asyncio
+import os
 from hebbs import HebbsClient
 
 async def main():
-    async with HebbsClient("localhost:6380") as client:
+    async with HebbsClient("localhost:6380", api_key=os.environ["HEBBS_API_KEY"]) as client:
         mem = await client.remember(
             content="My first memory from Python!",
             importance=0.8,

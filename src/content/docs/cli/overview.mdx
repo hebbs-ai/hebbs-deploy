@@ -33,12 +33,26 @@ The REPL maintains connection state and provides a faster feedback loop for deve
 - **Connection management** — configure server address, TLS, and timeouts via flags or environment variables.
 - **Streaming support** — the `subscribe` command opens a live stream and prints memory pushes as they arrive.
 
+## Authentication
+
+The CLI requires an API key when the server has auth enabled (the default). Set it via environment variable or flag:
+
+```bash
+export HEBBS_API_KEY="hb_..."
+hebbs-cli remember "hello world"
+
+# Or per-command:
+hebbs-cli --api-key "hb_..." remember "hello world"
+```
+
+The server prints a bootstrap API key on first start. See [Running the Server](/server/running/) for details.
+
 ## Configuration
 
 The CLI reads configuration from (in priority order):
 
-1. Command-line flags (`--address`, `--tls`, `--timeout`)
-2. Environment variables (`HEBBS_ADDRESS`, `HEBBS_TLS_CERT`, `HEBBS_TIMEOUT`)
+1. Command-line flags (`--address`, `--api-key`, `--tls`, `--timeout`)
+2. Environment variables (`HEBBS_API_KEY`, `HEBBS_ADDRESS`, `HEBBS_TLS_CERT`, `HEBBS_TIMEOUT`)
 3. Config file (`~/.config/hebbs/config.toml`)
 
 ## Next Steps
