@@ -3,15 +3,17 @@ title: Health & Metrics
 description: Monitor HEBBS with health endpoints and Prometheus metrics.
 ---
 
-## Health Endpoint
+## Health Endpoints
 
-Check server health at `/v1/health`:
+Check server liveness and readiness:
 
 ```bash
-curl http://localhost:6381/v1/health
-```
+# Liveness — is the process up?
+curl http://localhost:6381/v1/health/live
 
-Returns status and basic readiness information.
+# Readiness — is the server ready to accept requests?
+curl http://localhost:6381/v1/health/ready
+```
 
 ## Metrics Endpoint
 
