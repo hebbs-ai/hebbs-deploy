@@ -20,7 +20,7 @@ This installs `hebbs-server`, `hebbs-cli`, and `hebbs-bench` to `~/.hebbs/bin/`.
 hebbs-server
 ```
 
-The server listens on `localhost:6380` (gRPC) by default.
+The server listens on `localhost:6380` (gRPC) and `localhost:6381` (REST) by default. On first start it prints a bootstrap API key -- save it.
 
 ### 3. Install the Python SDK
 
@@ -31,7 +31,7 @@ pip install hebbs
 To include the demo app and all LLM providers:
 
 ```bash
-pip install hebbs[demo]
+pip install "hebbs[demo]"
 ```
 
 ### 4. Use the SDK
@@ -41,7 +41,7 @@ import asyncio
 from hebbs import HebbsClient
 
 async def main():
-    # Pass api_key directly, or set HEBBS_API_KEY env var
+    # api_key falls back to HEBBS_API_KEY env var if not passed
     async with HebbsClient("localhost:6380", api_key="hb_...") as h:
         # Store a memory (entity-scoped)
         mem = await h.remember(
@@ -51,7 +51,7 @@ async def main():
             entity_id="acme_corp",
         )
 
-        # Recall by semantic similarity (entity-isolated)
+        # Recall by semantic similarity
         results = await h.recall(
             cue="What CRM does Acme use?",
             strategies=["similarity"],
@@ -65,7 +65,7 @@ async def main():
         prime = await h.prime(entity_id="acme_corp", max_memories=50)
         print(f"Primed {len(prime.results)} memories")
 
-        # Generate insights from memory clusters (uses LLM)
+        # Generate insights from memory clusters (uses LLM server-side)
         reflect = await h.reflect(entity_id="acme_corp")
         print(f"Created {reflect.insights_created} insights")
 
@@ -75,6 +75,126 @@ async def main():
 
 asyncio.run(main())
 ```
+
+## SDK Reference
+
+### HebbsClient
+
+| Method | Description |
+|--------|-------------|
+| `remember(content, importance, context, entity_id, edges)` | Store a memory |
+| `get(memory_id)` | Retrieve a memory by ID (bytes) |
+| `recall(cue, strategies, top_k, entity_id, scoring_weights, cue_context)` | Multi-strategy recall |
+| `prime(entity_id, max_memories, similarity_cue, scoring_weights)` | Session warm-up |
+| `revise(memory_id, content, importance, context, entity_id)` | Update a memory |
+| `forget(entity_id, memory_ids)` | GDPR-compliant erasure (by entity or by IDs) |
+| `set_policy(max_snapshots_per_memory, auto_forget_threshold, decay_half_life_days)` | Configure tenant policies |
+| `subscribe(entity_id, confidence_threshold)` | Real-time memory surfacing |
+| `reflect(entity_id)` | Generate insights from clusters (LLM server-side) |
+| `insights(entity_id, max_results)` | Retrieve accumulated insights |
+| `health()` | Server health check |
+| `count()` | Total memory count |
+
+### Recall Strategies
+
+- **similarity** -- semantic vector search (HNSW, entity-filtered)
+- **temporal** -- time-ordered retrieval
+- **causal** -- cause-and-effect graph traversal
+- **analogical** -- cross-domain pattern matching (blends embedding + structural similarity)
+
+Pass strategy names as strings for basic usage. For advanced tuning, pass `RecallStrategyConfig` objects. You can mix both in the same call:
+
+```python
+results = await h.recall(
+    cue="What happened with Acme?",
+    strategies=["temporal", RecallStrategyConfig("similarity", top_k=3, ef_search=200)],
+    entity_id="acme_corp",
+)
+```
+
+### RecallStrategyConfig
+
+Per-strategy tuning parameters for advanced recall. Most users should just pass strategy names as strings. Use this when you need fine-grained control.
+
+| Field | Type | Default | Used By | Description |
+|-------|------|---------|---------|-------------|
+| `strategy` | `str` | *(required)* | all | Strategy name: `"similarity"`, `"temporal"`, `"causal"`, `"analogical"` |
+| `entity_id` | `str \| None` | `None` | all | Override entity scope for this strategy |
+| `top_k` | `int \| None` | `None` | all | Per-strategy result limit (separate from the top-level `top_k`) |
+| `ef_search` | `int \| None` | `50` | similarity | HNSW candidate count. Higher = more accurate, slower. |
+| `time_range` | `tuple[int, int] \| None` | `None` (unbounded) | temporal | `(start_us, end_us)` microsecond timestamps. When omitted, returns all memories newest-first. |
+| `seed_memory_id` | `bytes \| None` | `None` (auto) | causal | Starting node for graph traversal. When omitted, the engine picks the best seed. |
+| `max_depth` | `int \| None` | `5` (max 10) | causal | Maximum hops in graph traversal. |
+| `edge_types` | `list[EdgeType] \| None` | `None` (all) | causal | Restrict traversal to specific edge types. |
+| `analogical_alpha` | `float \| None` | `0.5` | analogical | Blend weight: `0.0` = pure structural, `1.0` = pure embedding similarity. |
+
+**Causal recall** -- trace cause-and-effect chains from a seed memory:
+
+```python
+from hebbs import RecallStrategyConfig, EdgeType
+
+results = await h.recall(
+    cue="What led to the pricing pushback?",
+    strategies=[
+        RecallStrategyConfig(
+            "causal",
+            seed_memory_id=mem.id,
+            max_depth=3,
+            edge_types=[EdgeType.CAUSED_BY, EdgeType.FOLLOWED_BY],
+        )
+    ],
+)
+```
+
+**Analogical recall** -- find structurally similar patterns across entities:
+
+```python
+results = await h.recall(
+    cue="enterprise CRM evaluation",
+    strategies=[RecallStrategyConfig("analogical", analogical_alpha=0.7)],
+    cue_context={"industry": "technology", "stage": "evaluation"},
+    top_k=5,
+)
+```
+
+### Scoring Weights
+
+Recall results are ranked by a composite score blending relevance, recency, importance, and reinforcement. Pass `scoring_weights` to tune the blend:
+
+```python
+from hebbs import ScoringWeights
+
+# Pure semantic match
+results = await h.recall(
+    cue="competitor pricing",
+    scoring_weights=ScoringWeights(w_relevance=1.0, w_recency=0.0, w_importance=0.0, w_reinforcement=0.0),
+)
+
+# Recency-biased -- "what just happened?"
+results = await h.recall(
+    cue="latest updates",
+    scoring_weights=ScoringWeights(w_relevance=0.2, w_recency=0.8, w_importance=0.0, w_reinforcement=0.0),
+)
+
+# Also works as a plain dict
+results = await h.recall(
+    cue="latest updates",
+    scoring_weights={"w_relevance": 0.2, "w_recency": 0.8, "w_importance": 0.0, "w_reinforcement": 0.0},
+)
+```
+
+Omit `scoring_weights` for the default blend (relevance 0.5, recency 0.2, importance 0.2, reinforcement 0.1).
+
+### Authentication
+
+The server generates a bootstrap API key on first start and prints it to stderr. Pass it to the client:
+
+```python
+async with HebbsClient("localhost:6380", api_key="hb_...") as h:
+    ...
+```
+
+Or set the `HEBBS_API_KEY` environment variable and omit `api_key` -- the SDK picks it up automatically. To explicitly connect without auth, pass `api_key=""`.
 
 ## Entity Isolation (Multitenancy)
 
@@ -125,18 +245,6 @@ hebbs-demo interactive --entity acme_corp
 # In-session: /session techflow_inc
 ```
 
-### Session Summary
-
-On exit, the CLI prints a session summary showing both LLM and HEBBS engine latency side by side:
-
-```
-┃ Metric             ┃                          Value ┃
-│ Total LLM latency  │                       28,039ms │
-│ HEBBS remember     │      4.5ms avg (18ms total)    │
-│ HEBBS recall       │      5.5ms avg (22ms total)    │
-│ HEBBS prime        │      3.2ms avg (3ms total)     │
-```
-
 ### Run Scenarios
 
 ```bash
@@ -145,58 +253,6 @@ hebbs-demo scenarios --run discovery_call # Run a specific one
 ```
 
 Available scenarios: `discovery_call`, `objection_handling`, `multi_session`, `reflect_learning`, `subscribe_realtime`, `forget_gdpr`, `multi_entity`.
-
-## SDK Reference
-
-### HebbsClient
-
-| Method | Description |
-|--------|-------------|
-| `remember(content, importance, context, entity_id)` | Store a memory |
-| `get(memory_id)` | Retrieve a memory by ID |
-| `recall(cue, strategies, top_k, entity_id, scoring_weights)` | Multi-strategy recall |
-| `prime(entity_id, max_memories, similarity_cue, scoring_weights)` | Session warm-up |
-| `revise(memory_id, content, importance, context)` | Update a memory |
-| `forget(entity_id, memory_ids)` | GDPR-compliant erasure |
-| `set_policy(...)` | Configure tenant policies |
-| `subscribe(entity_id, confidence_threshold)` | Real-time memory surfacing |
-| `reflect(entity_id)` | Generate insights from clusters |
-| `insights(entity_id, max_results)` | Retrieve accumulated insights |
-| `health()` | Server health check |
-| `count()` | Total memory count |
-
-### Recall Strategies
-
-- **similarity** -- semantic vector search (HNSW, entity-filtered)
-- **temporal** -- time-ordered retrieval
-- **causal** -- cause-and-effect graph traversal (entity-filtered)
-- **analogical** -- cross-domain pattern matching (entity-filtered)
-
-### Scoring Weights
-
-Recall results are ranked by a composite score blending relevance, recency, importance, and reinforcement. Pass `scoring_weights` to tune the blend:
-
-```python
-from hebbs import ScoringWeights
-
-# Pure semantic match
-results = await h.recall(
-    cue="competitor pricing",
-    strategies=["similarity"],
-    scoring_weights=ScoringWeights(w_relevance=1.0, w_recency=0.0, w_importance=0.0, w_reinforcement=0.0),
-)
-
-# Recency-biased -- "what just happened?"
-results = await h.recall(
-    cue="latest updates",
-    strategies=["similarity"],
-    scoring_weights=ScoringWeights(w_relevance=0.2, w_recency=0.8, w_importance=0.0, w_reinforcement=0.0),
-)
-```
-
-Omit `scoring_weights` for the default blend (relevance 0.5, recency 0.2, importance 0.2, reinforcement 0.1). Each result includes both `score` (composite) and `relevance` (raw cosine similarity).
-
-Full documentation: [docs.hebbs.ai](https://docs.hebbs.ai)
 
 ### LLM Providers
 
