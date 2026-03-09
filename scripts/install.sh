@@ -2,6 +2,9 @@
 # HEBBS Installer
 # Usage: curl -sSf https://hebbs.ai/install | sh
 #
+# Flags:
+#   --with-systemd      - Install systemd unit file (Linux only, requires root)
+#
 # Environment variables:
 #   HEBBS_VERSION       - Version to install (default: latest)
 #   HEBBS_INSTALL_DIR   - Installation directory (default: /usr/local/bin or ~/.hebbs/bin)
@@ -12,6 +15,13 @@ set -eu
 
 REPO="${HEBBS_REPO:-hebbs-ai/hebbs}"
 BASE_URL="https://github.com/${REPO}/releases"
+WITH_SYSTEMD=0
+
+for arg in "$@"; do
+    case "$arg" in
+        --with-systemd) WITH_SYSTEMD=1 ;;
+    esac
+done
 
 # ── Formatting ───────────────────────────────────────────────────────────────
 
@@ -231,6 +241,136 @@ post_install() {
     echo ""
 }
 
+# ── Systemd setup (Linux only) ────────────────────────────────────────────────
+
+setup_systemd() {
+    if [ "$OS_NAME" != "linux" ]; then
+        die "--with-systemd is only supported on Linux"
+    fi
+    if [ "$(id -u)" != "0" ]; then
+        die "--with-systemd requires root. Run with sudo."
+    fi
+
+    info "Setting up systemd service..."
+
+    # Create system user if missing
+    if ! id -u hebbs > /dev/null 2>&1; then
+        useradd --system --no-create-home --shell /usr/sbin/nologin hebbs
+        info "Created system user: hebbs"
+    fi
+
+    # Create directories
+    mkdir -p /etc/hebbs
+    mkdir -p /var/lib/hebbs
+    chown hebbs:hebbs /var/lib/hebbs
+
+    # Write default config if none exists
+    if [ ! -f /etc/hebbs/hebbs.toml ]; then
+        cat > /etc/hebbs/hebbs.toml <<'TOML'
+[server]
+grpc_port = 6380
+http_port = 6381
+bind_address = "0.0.0.0"
+shutdown_timeout_secs = 15
+
+[storage]
+data_dir = "/var/lib/hebbs"
+
+[embedding]
+provider = "onnx"
+auto_download = true
+
+[auth]
+enabled = true
+
+[logging]
+level = "info"
+format = "json"
+TOML
+        info "Created default config: /etc/hebbs/hebbs.toml"
+    else
+        info "Config already exists: /etc/hebbs/hebbs.toml (unchanged)"
+    fi
+
+    # Write empty env file if none exists (for API keys)
+    if [ ! -f /etc/hebbs/hebbs.env ]; then
+        cat > /etc/hebbs/hebbs.env <<'ENV'
+# HEBBS environment overrides and API keys.
+# Uncomment and set values as needed.
+#
+# OPENAI_API_KEY=sk-...
+# ANTHROPIC_API_KEY=sk-ant-...
+# HEBBS_SERVER_SHUTDOWN_TIMEOUT_SECS=15
+ENV
+        chmod 600 /etc/hebbs/hebbs.env
+        info "Created env file: /etc/hebbs/hebbs.env (mode 600)"
+    fi
+
+    # Install systemd unit
+    UNIT_SRC="${INSTALL_DIR}/../share/hebbs/hebbs-server.service"
+    UNIT_FALLBACK="$(cd "$(dirname "$0")" && pwd)/../systemd/hebbs-server.service"
+
+    if [ -f "$UNIT_SRC" ]; then
+        cp "$UNIT_SRC" /etc/systemd/system/hebbs-server.service
+    elif [ -f "$UNIT_FALLBACK" ]; then
+        cp "$UNIT_FALLBACK" /etc/systemd/system/hebbs-server.service
+    else
+        # Generate inline as fallback if no file is available
+        cat > /etc/systemd/system/hebbs-server.service <<UNIT
+[Unit]
+Description=HEBBS Cognitive Memory Engine
+Documentation=https://hebbs.ai/docs
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hebbs
+Group=hebbs
+ExecStart=${INSTALL_DIR}/hebbs-server --config /etc/hebbs/hebbs.toml
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hebbs-server
+EnvironmentFile=-/etc/hebbs/hebbs.env
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/hebbs
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+LimitNOFILE=65536
+LimitMEMLOCK=infinity
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    fi
+
+    systemctl daemon-reload
+    info "Installed systemd unit: hebbs-server.service"
+
+    echo ""
+    echo "  Enable and start HEBBS:"
+    echo ""
+    echo "    sudo systemctl enable --now hebbs-server"
+    echo ""
+    echo "  Check status:"
+    echo ""
+    echo "    sudo systemctl status hebbs-server"
+    echo "    journalctl -u hebbs-server -f"
+    echo ""
+}
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 main() {
@@ -243,6 +383,10 @@ main() {
     resolve_install_dir
     download
     post_install
+
+    if [ "$WITH_SYSTEMD" = "1" ]; then
+        setup_systemd
+    fi
 }
 
 main

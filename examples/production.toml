@@ -57,9 +57,11 @@ max_blocking_threads = 256
 
 # Grace period for in-flight requests during shutdown (SIGTERM).
 # Default: 15
-# Set this longer than your longest expected request. During rolling
-# deploys, the orchestrator's terminationGracePeriodSeconds must exceed
-# this value.
+# After this timeout, the process force-exits (exit code 1). Set this
+# longer than your longest expected request. Kubernetes
+# terminationGracePeriodSeconds and systemd TimeoutStopSec must both
+# exceed this value by ~5s to let the application handle its own timeout
+# before the orchestrator sends SIGKILL.
 shutdown_timeout_secs = 15
 
 # Maximum size of a single inbound request body in bytes.

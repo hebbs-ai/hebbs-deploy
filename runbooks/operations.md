@@ -10,6 +10,7 @@
 
 ## Table of Contents
 
+- [Bare Metal / VM Operations](#bare-metal--vm-operations)
 - [Backup and Restore](#backup-and-restore)
 - [Scaling Guide](#scaling-guide)
 - [Upgrade Procedure](#upgrade-procedure)
@@ -20,6 +21,109 @@
 - [Incident: Reflect Pipeline Stall](#incident-reflect-pipeline-stall)
 - [Incident: Authentication Failure Spike](#incident-authentication-failure-spike)
 - [Incident: OOM Kill](#incident-oom-kill)
+
+---
+
+## Bare Metal / VM Operations
+
+For deployments outside Kubernetes, HEBBS runs as a systemd service. The install script sets this up automatically with `--with-systemd`.
+
+### File Layout
+
+| Path | Purpose |
+|------|---------|
+| `/usr/local/bin/hebbs-server` | Server binary |
+| `/etc/hebbs/hebbs.toml` | TOML configuration |
+| `/etc/hebbs/hebbs.env` | Environment overrides and API keys (mode 600) |
+| `/var/lib/hebbs/` | Data directory (RocksDB, models, auth keys) |
+| `/etc/systemd/system/hebbs-server.service` | Systemd unit |
+
+### Service Management
+
+```bash
+# Start / stop / restart
+sudo systemctl start hebbs-server
+sudo systemctl stop hebbs-server       # sends SIGTERM, waits TimeoutStopSec
+sudo systemctl restart hebbs-server
+
+# Enable auto-start on boot
+sudo systemctl enable hebbs-server
+
+# Check status
+sudo systemctl status hebbs-server
+```
+
+### Viewing Logs
+
+Logs go to journald (structured JSON when `logging.format = "json"`):
+
+```bash
+# Stream live logs
+journalctl -u hebbs-server -f
+
+# Last 200 lines
+journalctl -u hebbs-server -n 200
+
+# Logs since last boot
+journalctl -u hebbs-server -b
+
+# Filter by severity
+journalctl -u hebbs-server -p err
+
+# Logs within a time window
+journalctl -u hebbs-server --since "2025-01-15 10:00" --until "2025-01-15 12:00"
+```
+
+### Configuration Changes
+
+After editing `/etc/hebbs/hebbs.toml` or `/etc/hebbs/hebbs.env`:
+
+```bash
+sudo systemctl restart hebbs-server
+```
+
+### Shutdown Timeout
+
+The server enforces `shutdown_timeout_secs` (default 15s) after receiving SIGTERM. If graceful shutdown (connection drain + background worker stop) does not complete within this window, the process force-exits.
+
+The systemd unit sets `TimeoutStopSec=20` — 5 seconds higher than the default — so the application handles its own timeout before systemd sends SIGKILL. If you increase `shutdown_timeout_secs` in `hebbs.toml`, increase `TimeoutStopSec` in the unit file to match:
+
+```bash
+sudo systemctl edit hebbs-server
+```
+
+```ini
+[Service]
+TimeoutStopSec=35
+```
+
+### Upgrading on Bare Metal
+
+```bash
+# 1. Download the new version
+HEBBS_VERSION=v0.2.0 curl -sSf https://hebbs.ai/install | sudo sh
+
+# 2. Restart the service (picks up the new binary)
+sudo systemctl restart hebbs-server
+
+# 3. Verify
+sudo systemctl status hebbs-server
+curl -s http://localhost:6381/v1/health/ready
+```
+
+### Monitoring Without Prometheus
+
+If Prometheus is not available, use the health and metrics endpoints directly:
+
+```bash
+# Health check
+curl -s http://localhost:6381/v1/health/ready | jq .
+
+# Prometheus metrics (text format)
+curl -s http://localhost:6381/v1/metrics | head -20
+```
+
+Set up a cron job or external monitoring tool to poll `/v1/health/ready` and alert on non-200 responses.
 
 ---
 
