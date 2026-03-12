@@ -193,3 +193,92 @@ jobs:
         with:
           files: artifacts/*
           generate_release_notes: true
+
+  update-homebrew:
+    name: Update Homebrew Tap
+    needs: [create-release]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Get version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download release artifacts and compute checksums
+        id: checksums
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          REPO="${{ github.repository }}"
+          BASE_URL="https://github.com/${REPO}/releases/download/v${VERSION}"
+
+          curl -sSfL "${BASE_URL}/hebbs-macos-arm64.tar.gz" -o macos-arm64.tar.gz
+          curl -sSfL "${BASE_URL}/hebbs-linux-x86_64.tar.gz" -o linux-x86_64.tar.gz
+          curl -sSfL "${BASE_URL}/hebbs-linux-aarch64.tar.gz" -o linux-aarch64.tar.gz
+
+          echo "sha_macos_arm64=$(sha256sum macos-arm64.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "sha_linux_x86_64=$(sha256sum linux-x86_64.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "sha_linux_aarch64=$(sha256sum linux-aarch64.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@v4
+        with:
+          repository: hebbs-ai/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update formula
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          REPO="${{ github.repository }}"
+          BASE_URL="https://github.com/${REPO}/releases/download/v${VERSION}"
+
+          cat > homebrew-tap/Formula/hebbs.rb << 'FORMULA'
+          class Hebbs < Formula
+            desc "Cognitive memory engine — store, recall, reflect, and forget knowledge"
+            homepage "https://hebbs.dev"
+            version "VERSION_PLACEHOLDER"
+            license "BSL-1.1"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "BASE_URL_PLACEHOLDER/hebbs-macos-arm64.tar.gz"
+                sha256 "SHA_MACOS_ARM64_PLACEHOLDER"
+              end
+            end
+
+            on_linux do
+              if Hardware::CPU.intel?
+                url "BASE_URL_PLACEHOLDER/hebbs-linux-x86_64.tar.gz"
+                sha256 "SHA_LINUX_X86_64_PLACEHOLDER"
+              elsif Hardware::CPU.arm?
+                url "BASE_URL_PLACEHOLDER/hebbs-linux-aarch64.tar.gz"
+                sha256 "SHA_LINUX_AARCH64_PLACEHOLDER"
+              end
+            end
+
+            def install
+              bin.install "hebbs-server"
+              bin.install "hebbs-cli"
+              bin.install "hebbs-bench" if File.exist?("hebbs-bench")
+            end
+
+            test do
+              assert_match "hebbs-cli", shell_output("#{bin}/hebbs-cli --version")
+            end
+          end
+          FORMULA
+
+          sed -i "s|VERSION_PLACEHOLDER|${VERSION}|g" homebrew-tap/Formula/hebbs.rb
+          sed -i "s|BASE_URL_PLACEHOLDER|${BASE_URL}|g" homebrew-tap/Formula/hebbs.rb
+          sed -i "s|SHA_MACOS_ARM64_PLACEHOLDER|${{ steps.checksums.outputs.sha_macos_arm64 }}|g" homebrew-tap/Formula/hebbs.rb
+          sed -i "s|SHA_LINUX_X86_64_PLACEHOLDER|${{ steps.checksums.outputs.sha_linux_x86_64 }}|g" homebrew-tap/Formula/hebbs.rb
+          sed -i "s|SHA_LINUX_AARCH64_PLACEHOLDER|${{ steps.checksums.outputs.sha_linux_aarch64 }}|g" homebrew-tap/Formula/hebbs.rb
+
+      - name: Commit and push formula
+        run: |
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/hebbs.rb
+          git commit -m "hebbs ${{ steps.version.outputs.version }}"
+          git push
