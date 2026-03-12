@@ -156,6 +156,7 @@ proptest! {
             kind,
             device_id: None,
             logical_clock: 0,
+            source_memory_ids: Vec::new(),
         };
 
         let json = proto_memory_to_json(&memory);
@@ -201,6 +202,7 @@ proptest! {
             kind,
             device_id: None,
             logical_clock: 0,
+            source_memory_ids: Vec::new(),
         };
 
         for fmt in [OutputFormat::Human, OutputFormat::Json, OutputFormat::Raw] {
@@ -240,6 +242,7 @@ proptest! {
                     kind: 1,
                     device_id: None,
                     logical_clock: 0,
+                    source_memory_ids: Vec::new(),
                 }),
                 score,
                 strategy_details: Vec::new(),
