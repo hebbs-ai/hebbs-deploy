@@ -83,6 +83,75 @@ HEBBS works in layers. Each layer works independently:
 
 All tiers work out of the box with just the server running. No external LLM or API key is required — the agent (you) provides the reasoning for reflection.
 
+## First-run setup
+
+**Installing the skill does not mean HEBBS is ready.** The skill teaches you the commands; the system below must also be running. Walk through each phase in order and tell the user which phase you are on.
+
+### Phase 1: Install binaries
+
+Check if the binaries exist:
+```
+which hebbs-cli && which hebbs-server
+```
+
+If missing, install them:
+```
+brew install hebbs-ai/tap/hebbs
+```
+
+Or on any platform (Linux, macOS):
+```
+curl -sSf https://hebbs.ai/install | sh
+```
+
+Tell the user: "Phase 1 complete — binaries installed."
+
+### Phase 2: Start the server
+
+```
+brew services start hebbs 2>/dev/null || (mkdir -p ~/.hebbs/data && HEBBS_AUTH_ENABLED=false nohup hebbs-server start --data-dir ~/.hebbs/data > /tmp/hebbs-server.log 2>&1 &)
+```
+
+Tell the user: "Phase 2 complete — server starting. Waiting for initialization..."
+
+### Phase 3: Wait for health
+
+The ONNX embedding model takes 10-30 seconds to load on first start. Retry status up to 6 times with 5-second intervals:
+```
+for i in 1 2 3 4 5 6; do sleep 5; hebbs-cli status --format json 2>&1 && break; done
+```
+
+If still not serving after 30 seconds, check the log:
+```
+tail -20 /tmp/hebbs-server.log 2>/dev/null; brew services info hebbs 2>/dev/null
+```
+
+Common causes: data directory missing or unwritable, port 6380 already in use.
+
+Do not proceed until `status` shows `SERVING`.
+
+Tell the user: "Phase 3 complete — server healthy."
+
+### Phase 4: Verify with a test command
+
+```
+hebbs-cli remember "HEBBS setup verified" --importance 0.1 --entity-id _system --format json
+```
+
+Then:
+```
+hebbs-cli recall "setup verified" --top-k 1 --format json
+```
+
+If recall returns the memory, the full pipeline (store, embed, index, retrieve) is working.
+
+Tell the user: "Phase 4 complete — HEBBS is fully operational. Memory commands are ready."
+
+Clean up the test memory:
+```
+hebbs-cli forget --entity-id _system
+```
+
 ## Before every command
 
 Check the server is healthy before running any `hebbs-cli` command:
@@ -93,61 +162,7 @@ hebbs-cli status --format json 2>&1
 
 If `status` shows `SERVING`, proceed normally.
 
-If `status` fails with a connection error or shows `NOT_SERVING`, follow this startup sequence:
-
-1. Ensure the data directory exists:
-```
-mkdir -p ~/.hebbs/data
-```
-
-2. Start the server (prefer `brew services` if available, otherwise nohup):
-```
-brew services start hebbs 2>/dev/null || HEBBS_AUTH_ENABLED=false nohup hebbs-server start --data-dir ~/.hebbs/data > /tmp/hebbs-server.log 2>&1 &
-```
-
-3. The ONNX embedding model takes time to initialize on first start. Retry status up to 5 times with 5-second intervals:
-```
-for i in 1 2 3 4 5; do sleep 5; hebbs-cli status --format json 2>&1 && break; done
-```
-
-4. If still not serving after 25 seconds, check the log:
-```
-cat /tmp/hebbs-server.log | tail -20
-```
-
-Common causes: data directory missing or unwritable, port 6380 already in use.
-
-Do not proceed with other HEBBS commands until `status` shows `SERVING`.
-
-## Prerequisites
-
-Install HEBBS via Homebrew or the install script:
-
-```
-brew install hebbs-ai/tap/hebbs
-```
-
-Or on any platform (Linux, macOS):
-
-```
-curl -sSf https://hebbs.ai/install | sh
-```
-
-## Quick setup (one command)
-
-Install, start, and verify in one shot:
-
-```
-brew install hebbs-ai/tap/hebbs && brew services start hebbs && sleep 10 && hebbs-cli status --format json
-```
-
-If `brew services` is not available (e.g., non-Homebrew install), use:
-
-```
-mkdir -p ~/.hebbs/data && HEBBS_AUTH_ENABLED=false nohup hebbs-server start --data-dir ~/.hebbs/data > /tmp/hebbs-server.log 2>&1 & sleep 10 && hebbs-cli status --format json
-```
-
-The server listens on gRPC port 6380 and HTTP port 6381. Data is stored in `~/.hebbs/data` (Homebrew) or the configured `--data-dir`.
+If not, run Phase 2 and Phase 3 from the first-run setup above.
 
 ## Operations
 
