@@ -7,15 +7,15 @@ metadata:
     "openclaw":
       {
         "emoji": "🧠",
-        "requires": { "bins": ["hebbs-cli"] },
+        "requires": { "bins": ["hebbs-cli", "hebbs-server"] },
         "install":
           [
             {
-              "id": "cargo",
-              "kind": "shell",
-              "command": "cargo install hebbs-cli",
-              "bins": ["hebbs-cli"],
-              "label": "Install HEBBS CLI (cargo)",
+              "id": "brew",
+              "kind": "brew",
+              "formula": "hebbs-ai/tap/hebbs",
+              "bins": ["hebbs-cli", "hebbs-server"],
+              "label": "Install HEBBS (brew)",
             },
           ],
       },
@@ -26,7 +26,29 @@ metadata:
 
 HEBBS is a local-first memory engine. It stores, indexes, and retrieves knowledge using multiple recall strategies and can consolidate raw memories into higher-order insights through reflection.
 
-The server must be running: `hebbs-cli` commands talk to it over gRPC (default `localhost:50051`).
+## Prerequisites
+
+Install HEBBS via Homebrew or the install script:
+
+```
+brew install hebbs-ai/tap/hebbs
+```
+
+Or on any platform (Linux, macOS):
+
+```
+curl -sSf https://hebbs.ai/install | sh
+```
+
+The server must be running before using any `hebbs-cli` command:
+
+```
+hebbs-server
+```
+
+This starts the gRPC server on port 6380 and HTTP on port 6381 with default settings. To run in the background: `nohup hebbs-server &`
+
+Before running commands, verify the server is reachable: `hebbs-cli recall "test" --format json 2>&1`. If connection is refused, the server is not running.
 
 ## When to use HEBBS
 
@@ -182,4 +204,5 @@ Always use `--format json` when parsing output programmatically. Human format is
 
 ## Connection
 
-Default endpoint: `localhost:50051` (gRPC). Override with `--endpoint <host:port>`.
+Default endpoint: `localhost:6380` (gRPC). Override with `--endpoint <host:port>`.
+HTTP endpoint (metrics/health): `localhost:6381`.
