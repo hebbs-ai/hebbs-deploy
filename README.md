@@ -4,59 +4,126 @@
 
 # HEBBS
 
-> **HEBBS is under active development.** If you'd like to use it now, please reach out: [Quick chat with the founder](https://buxo.ai/parag/hebbsai-quick-chat-with-founder)
+**The memory engine for AI agents.** Four recall strategies. Native consolidation. Automatic decay. One binary.
 
-**The memory engine for AI agents.** One binary. Sub-10ms recall. Agents that actually learn.
+HEBBS is a cognitive memory primitive purpose-built for AI agents. Vector search tells your agent what's *similar*. HEBBS tells your agent what *happened*, what *caused* it, and what *worked before*.
 
-HEBBS is a memory primitive purpose-built for AI agents. It replaces the patchwork of vector databases, key-value stores, and graph databases that agent developers cobble together today with a single, fast, embeddable engine.
+```
+4 recall strategies · Native consolidation · Automatic decay · One skill file, zero config
+```
 
-Vector search tells your agent what's *similar*. HEBBS tells your agent what *happened*, what *caused* it, and what *worked before*.
+```bash
+brew install hebbs-ai/tap/hebbs
+```
+
+Or on any platform:
 
 ```bash
 curl -sSf https://hebbs.ai/install | sh
-hebbs-server
 ```
+
+---
+
+## Works Out of the Box with Your Agent
+
+HEBBS ships as a **skill** for Claude Code and OpenClaw. No SDK integration. No glue code. No configuration. Install HEBBS, and your agent automatically stores memories, recalls with the right strategy, consolidates insights, and forgets what's stale.
+
+```
+Without HEBBS:                          With HEBBS:
+
+1. Choose a vector DB                   brew install hebbs-ai/tap/hebbs
+2. Set up embedding pipeline
+3. Write storage layer                  Done.
+4. Write retrieval layer
+5. Add temporal logic                   Your agent now has:
+6. Add graph traversal                  - 4 recall strategies
+7. Wire it all together                 - Temporal + causal + analogical
+8. Handle decay manually                - Native decay & reinforcement
+9. Build consolidation pipeline         - Automatic consolidation
+10. Maintain 4 services                 - Works with Claude & OpenClaw
+
+~2,000 lines of glue                    0 lines of glue
+```
+
+The skill is published at [hebbs-ai/hebbs-skill](https://github.com/hebbs-ai/hebbs-skill) and works with any agent that reads SKILL.md.
 
 ---
 
 ## Why HEBBS Exists
 
-Current "memory" solutions for AI agents are storage dressed up as intelligence. They solve narrow retrieval problems but miss the deeper cognitive capabilities agents actually need.
+Every agent framework gives you similarity search and calls it memory. HEBBS gives your agent temporal reasoning, causal chains, analogical transfer, consolidation, and decay -- the cognitive operations that turn retrieval into understanding.
 
-| Approach | What it does | What it misses |
+| What your agent's memory does today | What HEBBS does |
+|---|---|
+| Embed a question, find 5 nearest vectors | **"What happened before this?"** -- Temporal recall |
+| Return them and hope for the best | **"What caused this outcome?"** -- Causal graph walk |
+| Precision on temporal queries: ~23% | **"What pattern transfers here?"** -- Analogical matching |
+| No decay, no consolidation, no revision | Memories decay. Important ones strengthen. Episodes consolidate into insights. |
+
+The delta isn't milliseconds. It's **+68 percentage points on temporal queries** and **+63 on causal**.
+
+---
+
+## Four Recall Strategies
+
+Everyone else has one. HEBBS has four.
+
+| Strategy | Question it answers | Example |
 |---|---|---|
-| Conversation History | Append-only log, truncate at window | No importance weighting, no consolidation, context just gets cut |
-| Vector DB / RAG | Similarity retrieval over chunks | One retrieval path, no decay, no structural consolidation |
-| Redis / KV Cache | Fast storage of computed results | No semantic understanding, manual key management for everything |
-| Knowledge Graphs | Structured relationships | Hard to populate automatically, rigid schema, no temporal context |
+| **Similarity** | "What looks like this?" | Finding relevant objection responses |
+| **Temporal** | "What happened, in order?" | Reconstructing a prospect's full history |
+| **Causal** | "What led to this outcome?" | Understanding why a deal was lost |
+| **Analogical** | "What's structurally similar in a different domain?" | Applying finance patterns to healthcare |
 
-HEBBS moves beyond storage into cognition: importance-driven encoding, multi-path recall, episodic-to-semantic consolidation, native decay and reinforcement, and revision over append.
+All four run against a single engine. No fan-out across services.
+
+### Tunable Scoring
+
+Every result is ranked by a composite score blending four signals:
+
+| Signal | What it captures | Default weight |
+|---|---|---|
+| **Relevance** | Semantic similarity to the query | 0.50 |
+| **Recency** | How recently the memory was created | 0.20 |
+| **Importance** | Salience set at encoding time | 0.20 |
+| **Reinforcement** | How often the memory has been recalled | 0.10 |
+
+One parameter changes everything:
+- `1:0:0:0` -- pure semantic (RAG mode)
+- `0.2:0.8:0:0` -- favor recent (live context mode)
+- `0.3:0.1:0.5:0.1` -- favor important (critical decisions mode)
+
+---
+
+## Your Agent Learns, Not Just Stores
+
+The `reflect` pipeline clusters raw memories, proposes insights, validates them, and stores consolidated knowledge with full lineage.
+
+```
+Raw memories (episodes):
+  "Customer asked about pricing"
+  "Customer mentioned competitor X"
+  "Customer objected to annual commitment"
+  "Deal lost to competitor X"
+
+          | reflect (automatic consolidation)
+
+Insight (with lineage):
+  "Deals mentioning competitor X with pricing objections
+   have 73% loss rate when annual commitment is pushed early"
+   [confidence: 0.84, sources: 4 memories, tags: sales, pricing]
+```
 
 ---
 
 ## Quick Start
 
-### Install
-
-```bash
-# macOS (Apple Silicon) / Linux (x86_64 / aarch64)
-curl -sSf https://hebbs.ai/install | sh
-export PATH="$HOME/.hebbs/bin:$PATH"
-```
-
-Pin a version or change the install directory:
-
-```bash
-HEBBS_VERSION=v0.1.0 curl -sSf https://hebbs.ai/install | sh
-HEBBS_INSTALL_DIR=/usr/local/bin curl -sSf https://hebbs.ai/install | sh
-```
-
 ### Start the Server
 
 ```bash
-hebbs-server                      # start on localhost:6380 (gRPC) + :6381 (HTTP)
-hebbs-cli remember "hello world"  # store a memory
-hebbs-cli recall "hello"          # recall it
+hebbs-server start                    # gRPC :6380, HTTP :6381, data ./hebbs-data
+hebbs-cli remember "hello world"      # store a memory
+hebbs-cli recall "hello"              # recall it
 ```
 
 ### Connect from Python
@@ -69,6 +136,23 @@ pip install hebbs
 from hebbs import HebbsClient
 
 client = HebbsClient("localhost:6380")
+
+await client.remember(
+    content="Prospect mentioned competitor contract expires March 15",
+    importance=0.95,
+    entity_id="acme",
+    context={"stage": "discovery", "signal": "urgency"},
+)
+
+# Four recall strategies
+history = await client.recall(cue="acme engagement", strategy="temporal", entity_id="acme")
+responses = await client.recall(cue="we built this in-house", strategy="similarity")
+causes = await client.recall(cue="deal lost after pricing", strategy="causal")
+patterns = await client.recall(cue="healthcare compliance objection", strategy="analogical")
+
+# Consolidate and query insights
+result = await client.reflect()
+insights = await client.insights(entity_id="acme", max_results=10)
 ```
 
 ### Connect from TypeScript
@@ -82,334 +166,125 @@ import { HebbsClient } from '@hebbs/sdk';
 
 const client = new HebbsClient('localhost:6380', { apiKey: process.env.HEBBS_API_KEY });
 await client.connect();
-```
 
-### Remember
-
-<details>
-<summary>Python</summary>
-
-```python
-await client.remember(
-    content="Prospect mentioned competitor contract expires March 15",
-    importance=0.95,
-    entity_id="acme",
-    context={"stage": "discovery", "signal": "urgency"},
-)
-```
-
-</details>
-
-<details>
-<summary>TypeScript</summary>
-
-```typescript
 await client.remember({
     content: 'Prospect mentioned competitor contract expires March 15',
     importance: 0.95,
     entityId: 'acme',
     context: { stage: 'discovery', signal: 'urgency' },
 });
-```
 
-</details>
-
-### Recall
-
-<details>
-<summary>Python</summary>
-
-```python
-# What happened with this prospect? (Temporal)
-history = await client.recall(cue="acme engagement", strategy="temporal", entity_id="acme")
-
-# How should I handle this objection? (Similarity)
-responses = await client.recall(cue="we built this in-house", strategy="similarity")
-
-# Why did the last similar deal fall through? (Causal)
-causes = await client.recall(cue="deal lost after pricing", strategy="causal")
-
-# I've never sold to healthcare -- what's transferable? (Analogical)
-patterns = await client.recall(cue="healthcare compliance objection", strategy="analogical")
-```
-
-</details>
-
-<details>
-<summary>TypeScript</summary>
-
-```typescript
-// What happened with this prospect? (Temporal)
+// Four recall strategies
 const history = await client.recall({ cue: 'acme engagement', strategies: ['temporal'], entityId: 'acme' });
-
-// How should I handle this objection? (Similarity)
-const responses = await client.recall({ cue: 'we built this in-house', strategies: ['similarity'] });
-
-// Why did the last similar deal fall through? (Causal)
 const causes = await client.recall({ cue: 'deal lost after pricing', strategies: ['causal'] });
-
-// I've never sold to healthcare -- what's transferable? (Analogical)
 const patterns = await client.recall({ cue: 'healthcare compliance objection', strategies: ['analogical'] });
-```
 
-</details>
-
-### Subscribe (Real-time)
-
-<details>
-<summary>Python</summary>
-
-```python
-sub = await client.subscribe(entity_id="acme", confidence_threshold=0.8)
-await sub.feed("They just mentioned compliance concerns again")
-async for push in sub:
-    inject_into_agent_context(push.memory)
-```
-
-</details>
-
-<details>
-<summary>TypeScript</summary>
-
-```typescript
-const sub = await client.subscribe({ entityId: 'acme', confidenceThreshold: 0.8 });
-await sub.feed('They just mentioned compliance concerns again');
-for await (const push of sub) {
-    injectIntoAgentContext(push.memory);
-}
-```
-
-</details>
-
-### Reflect
-
-<details>
-<summary>Python</summary>
-
-```python
-result = await client.reflect()
-insights = await client.insights(entity_id="acme", max_results=10)
-```
-
-</details>
-
-<details>
-<summary>TypeScript</summary>
-
-```typescript
+// Consolidate and query insights
 const result = await client.reflect();
 const insights = await client.insights({ entityId: 'acme', maxResults: 10 });
 ```
 
-</details>
-
 ### Reference Demos
 
-The [hebbs-python](https://github.com/hebbs-ai/hebbs-python) repo includes a full AI Sales Intelligence Agent demo with 7 scripted scenarios, 5 LLM providers, and Rich terminal panels showing every HEBBS operation in real time.
+The [hebbs-python](https://github.com/hebbs-ai/hebbs-python) repo includes a full AI Sales Intelligence Agent demo with 7 scripted scenarios, 5 LLM providers, and Rich terminal panels.
 
 ```bash
 pip install hebbs[demo]
 hebbs-demo interactive --config gemini-vertex --verbosity verbose
-hebbs-demo scenarios --all
 ```
 
-The [hebbs-typescript](https://github.com/hebbs-ai/hebbs-typescript) repo includes an equivalent TypeScript demo with 3 scripted scenarios and an interactive mode.
+The [hebbs-typescript](https://github.com/hebbs-ai/hebbs-typescript) repo includes an equivalent TypeScript demo with 3 scenarios and an interactive mode.
 
 ```bash
 cd hebbs-typescript/demo && npm install
 npx tsx src/index.ts interactive --mock-llm
-npx tsx src/index.ts scenarios --all --mock-llm
 ```
 
 ---
 
 ## The API
 
-Nine operations. Three groups.
+Nine operations. Three groups. Each one is a cognitive primitive that didn't exist as a single call before.
 
 ### Write
 
-| Operation | What it does |
-|---|---|
-| `remember(experience, importance, context)` | Store a memory with importance scoring and structured context. |
-| `revise(memory_id, new_evidence)` | Update a belief. Replaces, not appends. |
-| `forget(criteria)` | Prune by staleness, irrelevance, or compliance (GDPR). |
+| Operation | What it does | Why it matters |
+|---|---|---|
+| `remember()` | Store with importance scoring | Not append-only. Every memory is weighted at birth. |
+| `revise()` | Update beliefs, keep lineage | Your agent corrects itself. No contradictory facts coexisting. |
+| `forget()` | Prune by staleness, compliance | Real deletion. GDPR-proof. Signal-to-noise improves over time. |
 
 ### Read
 
-| Operation | What it does |
-|---|---|
-| `recall(cue, strategy)` | Retrieve memories by similarity, time, causation, or analogy. |
-| `prime(context)` | Pre-load relevant context before an agent turn. For frameworks. |
-| `subscribe(input_stream, threshold)` | Real-time push. The engine surfaces memories as they become relevant. |
+| Operation | What it does | Why it matters |
+|---|---|---|
+| `recall()` | 4 strategies, composite scoring | Not just "find similar" -- find relevant, recent, causal, analogical. |
+| `prime()` | Pre-load context | Start of conversation = agent already knows what matters. |
+| `subscribe()` | Real-time push | Memories surface automatically when they become relevant. |
 
 ### Consolidate
 
-| Operation | What it does |
-|---|---|
-| `reflect_policy(config)` | Configure automatic background consolidation triggers. |
-| `reflect(scope)` | Manual trigger for on-demand consolidation. |
-| `insights(filter)` | Query distilled knowledge produced by reflection. |
+| Operation | What it does | Why it matters |
+|---|---|---|
+| `reflect()` | Consolidate episodes into insights | Your agent learns patterns, not just stores facts. |
+| `insights()` | Query consolidated knowledge | Higher-order understanding, not raw retrieval. |
+
+---
+
+## Client Libraries
+
+| Language | Package | Repo | Status |
+|---|---|---|---|
+| Python | `pip install hebbs` | [hebbs-ai/hebbs-python](https://github.com/hebbs-ai/hebbs-python) | Alpha (gRPC + embedded via PyO3) |
+| TypeScript | `npm install @hebbs/sdk` | [hebbs-ai/hebbs-typescript](https://github.com/hebbs-ai/hebbs-typescript) | Alpha (gRPC, Node.js 18+) |
+| Rust | `hebbs` crate (direct) | This repo | Stable |
+| Agent Skill | SKILL.md | [hebbs-ai/hebbs-skill](https://github.com/hebbs-ai/hebbs-skill) | Stable (Claude Code, OpenClaw) |
 
 ---
 
 ## Scoping: Entities and Tenants
 
-HEBBS has two scoping dimensions that keep data organized and isolated.
+HEBBS has two scoping dimensions.
 
-### `entity_id` — what the memory is about
+**`entity_id`** -- what the memory is about (a customer, project, user). Optional. Scope recall, prime, and forget to a subject.
 
-An entity is a domain-level grouping. It represents the subject a memory relates to: a customer, a project, a conversation, a user. Entity IDs are **optional** — memories without one live in a global, unscoped pool.
-
-- `recall` and `prime` can be scoped to an entity for focused retrieval
-- `temporal` recall requires an entity (it queries "recent history for *this* subject")
-- `forget` by entity deletes all memories for that subject (GDPR erasure path)
-- Cross-entity `similarity` recall works within the same tenant — "what did I learn from Acme that applies to Initech?"
-
-### `tenant_id` — who owns the data
-
-A tenant is an infrastructure-level isolation boundary. It represents the organization, workspace, or deployment that owns the data. Tenant isolation is **structural** — storage keys are prefixed, index traversal is partitioned, and data from one tenant is invisible to another.
-
-- In authenticated mode, `tenant_id` is derived automatically from the API key
-- SDKs accept an explicit `tenant_id` at construction time for `--no-auth` deployments
-- One HEBBS instance serves many tenants; each tenant can have many entities
-
-<details>
-<summary>Python</summary>
-
-```python
-# tenant_id set at construction — applied to all operations
-client = HebbsClient("localhost:6380", tenant_id="acme-corp")
-await client.remember(content="Q2 forecast looks strong", entity_id="project-alpha")
-```
-
-</details>
-
-<details>
-<summary>TypeScript</summary>
-
-```typescript
-const client = new HebbsClient('localhost:6380', { tenantId: 'acme-corp' });
-await client.connect();
-await client.remember({ content: 'Q2 forecast looks strong', entityId: 'project-alpha' });
-```
-
-</details>
-
-<details>
-<summary>Rust</summary>
-
-```rust
-let client = HebbsClient::builder()
-    .endpoint("http://localhost:6380")
-    .tenant_id("acme-corp")
-    .build()
-    .await?;
-```
-
-</details>
-
-<details>
-<summary>CLI</summary>
+**`tenant_id`** -- who owns the data (an org, workspace). Structural isolation -- storage keys are prefixed, index traversal is partitioned, cross-tenant queries are impossible.
 
 ```bash
 hebbs-cli --tenant acme-corp remember "Q2 forecast looks strong" --entity-id project-alpha
-# Or via environment variable:
-export HEBBS_TENANT=acme-corp
-hebbs-cli remember "Q2 forecast looks strong" --entity-id project-alpha
 ```
-
-</details>
-
-| | Entity (`entity_id`) | Tenant (`tenant_id`) |
-|---|---|---|
-| **Purpose** | Domain grouping ("about what") | Infrastructure isolation ("owned by whom") |
-| **Isolation** | Logical (query filters) | Structural (storage prefix, index partitioning) |
-| **Required** | No — optional on all operations | No — derived from API key, or set explicitly |
-| **Cross-scope queries** | Yes, within the same tenant | Never — tenants are hard boundaries |
-| **Maps to** | Customer, user, project, conversation | Organization, workspace, deployment |
-
----
-
-## Four Recall Strategies
-
-Most memory systems give you one retrieval mode: similarity search. HEBBS gives you four.
-
-| Strategy | Question it answers | Example |
-|---|---|---|
-| **Similarity** | "What looks like this?" | Finding relevant objection responses |
-| **Temporal** | "What happened, in order?" | Reconstructing a prospect's full history |
-| **Causal** | "What led to this outcome?" | Understanding why a deal was lost |
-| **Analogical** | "What's structurally similar in a different domain?" | Applying finance patterns to healthcare |
-
-All four run against a single engine. No fan-out across services.
-
----
-
-## Tunable Scoring
-
-Every recall result is ranked by a composite score that blends four signals:
-
-| Signal | What it captures | Default weight |
-|---|---|---|
-| **Relevance** | Semantic similarity to the query | 0.50 |
-| **Recency** | How recently the memory was created | 0.20 |
-| **Importance** | Salience set at encoding time | 0.20 |
-| **Reinforcement** | How often the memory has been recalled | 0.10 |
-
-Pass `scoring_weights` to shift the blend for any recall or prime call:
-
-<details>
-<summary>Python</summary>
 
 ```python
-# Pure semantic match -- ignore time, importance, and reinforcement
-results = await client.recall(
-    cue="competitor pricing objection",
-    strategies=["similarity"],
-    scoring_weights=ScoringWeights(w_relevance=1.0, w_recency=0.0, w_importance=0.0, w_reinforcement=0.0),
-)
-
-# "What just happened?" -- bias toward recent memories
-results = await client.recall(
-    cue="latest updates",
-    strategies=["similarity"],
-    scoring_weights=ScoringWeights(w_relevance=0.2, w_recency=0.8, w_importance=0.0, w_reinforcement=0.0),
-)
+client = HebbsClient("localhost:6380", tenant_id="acme-corp")
 ```
-
-</details>
-
-<details>
-<summary>TypeScript</summary>
 
 ```typescript
-// Pure semantic match -- ignore time, importance, and reinforcement
-const results = await client.recall({
-    cue: 'competitor pricing objection',
-    strategies: ['similarity'],
-    scoringWeights: { wRelevance: 1.0, wRecency: 0.0, wImportance: 0.0, wReinforcement: 0.0 },
-});
-
-// "What just happened?" -- bias toward recent memories
-const recent = await client.recall({
-    cue: 'latest updates',
-    strategies: ['similarity'],
-    scoringWeights: { wRelevance: 0.2, wRecency: 0.8, wImportance: 0.0, wReinforcement: 0.0 },
-});
+const client = new HebbsClient('localhost:6380', { tenantId: 'acme-corp' });
 ```
 
-</details>
+---
 
-Omit `scoring_weights` for the default composite blend. Works across Python, TypeScript, CLI (`--weights 1:0:0:0`), and REST API.
+## Comparison
 
-Full documentation: [docs.hebbs.ai/concepts/recall-strategies](https://docs.hebbs.ai/concepts/recall-strategies/)
+| | pgvector | Qdrant | Neo4j | Memory Wrappers | **HEBBS** |
+|---|---|---|---|---|---|
+| Recall strategies | 1 | 1 | 1-2 | 1-2 | **4** |
+| Temporal recall | No | No | No | No | **Native** |
+| Causal reasoning | No | No | Partial | No | **Native** |
+| Analogical transfer | No | No | No | No | **Native** |
+| Native decay | No | No | No | No | **Yes** |
+| Consolidation | No | No | No | Partial | **Native** |
+| Revision with lineage | No | No | No | No | **Yes** |
+| Agent skill (drop-in) | No | No | No | No | **Yes** |
+| LLM calls on hot path | N/A | N/A | N/A | Yes | **Zero** |
+| Recall latency (10M) | ~20ms | ~10ms | ~50ms | 50-200ms | **<10ms** |
+| Runtime dependencies | Postgres | Qdrant | JVM + Neo4j | 3-4 services | **None** |
 
 ---
 
 ## Performance
 
-Benchmarked on a single `c6g.large` instance (2 vCPU, 4GB RAM) with 10M stored memories.
+And it does all of this in under 10ms. Benchmarked on a single `c6g.large` instance (2 vCPU, 4GB RAM) with 10M stored memories.
 
 | Operation | p50 | p99 |
 |---|---|---|
@@ -420,7 +295,8 @@ Benchmarked on a single `c6g.large` instance (2 vCPU, 4GB RAM) with 10M stored m
 | `recall` (multi-strategy) | 6ms | 18ms |
 | `subscribe` (event-to-push) | 1ms | 5ms |
 
-### Scalability
+<details>
+<summary>Scalability</summary>
 
 | Memories | `recall` p99 (similarity) | `recall` p99 (temporal) |
 |---|---|---|
@@ -429,6 +305,8 @@ Benchmarked on a single `c6g.large` instance (2 vCPU, 4GB RAM) with 10M stored m
 | 10M | 8ms | 1.2ms |
 | 100M | 12ms | 2.0ms |
 
+</details>
+
 ---
 
 ## Architecture
@@ -436,38 +314,41 @@ Benchmarked on a single `c6g.large` instance (2 vCPU, 4GB RAM) with 10M stored m
 ```text
 ──────────────────────────────────────────────────────────
                      Client SDKs
-             Python  │  TypeScript  │  Rust
+             Python  |  TypeScript  |  Rust
 ──────────────────────────────────────────────────────────
-                gRPC  │  HTTP/REST
+               Agent Skills (SKILL.md)
+            Claude Code  |  OpenClaw
+──────────────────────────────────────────────────────────
+                gRPC  |  HTTP/REST
 ──────────────────────────────────────────────────────────
 
                   Core Engine (Rust)
 
-  ┌────────────┐ ┌────────────┐ ┌──────────────────┐
-  │  Remember   │ │   Recall   │ │ Reflect Pipeline │
-  │  Engine     │ │   Engine   │ │ (background)     │
-  │             │ │            │ │                  │
-  │ • encode    │ │ • prime    │ │ • cluster (Rust) │
-  │ • score     │ │ • query    │ │ • propose (LLM)  │
-  │ • index     │ │ • subscribe│ │ • validate (LLM) │
-  │ • decay     │ │ • merge    │ │ • store insights │
-  └─────┬───────┘ └─────┬──────┘ └────────┬─────────┘
-        │               │                 │
-  ┌─────┴───────────────┴─────────────────┴──────────┐
-  │              Index Layer                         │
-  │   Temporal (B-tree) │ Vector (HNSW) │ Graph      │
-  └──────────────────────┬───────────────────────────┘
-                         │
-  ┌──────────────────────┴───────────────────────────┐
-  │         Storage Engine (RocksDB)                 │
-  │         Column Families per index type           │
-  └──────────────────────────────────────────────────┘
+  +------------+ +------------+ +------------------+
+  |  Remember   | |   Recall   | | Reflect Pipeline |
+  |  Engine     | |   Engine   | | (background)     |
+  |             | |            | |                  |
+  | - encode    | | - prime    | | - cluster (Rust) |
+  | - score     | | - query    | | - propose (LLM)  |
+  | - index     | | - subscribe| | - validate (LLM) |
+  | - decay     | | - merge    | | - store insights |
+  +------+------+ +------+-----+ +--------+---------+
+         |               |                |
+  +------+---------------+----------------+-----------+
+  |              Index Layer                          |
+  |   Temporal (B-tree) | Vector (HNSW) | Graph       |
+  +----------------------+----------------------------+
+                         |
+  +----------------------+----------------------------+
+  |         Storage Engine (RocksDB)                  |
+  |         Column Families per index type            |
+  +---------------------------------------------------+
 
-  ┌───────────────────────┐  ┌────────────────────────┐
-  │ Embedding Engine      │  │ LLM Provider Interface │
-  │ (ONNX Runtime,        │  │ (Anthropic, OpenAI,    │
-  │  built-in default)    │  │  Ollama -- pluggable)  │
-  └───────────────────────┘  └────────────────────────┘
+  +-----------------------+  +------------------------+
+  | Embedding Engine      |  | LLM Provider Interface |
+  | (ONNX Runtime,        |  | (Anthropic, OpenAI,    |
+  |  built-in default)    |  |  Ollama -- pluggable)  |
+  +-----------------------+  +------------------------+
 ```
 
 **Built with:**
@@ -481,14 +362,14 @@ Benchmarked on a single `c6g.large` instance (2 vCPU, 4GB RAM) with 10M stored m
 
 ## Deployment
 
-### Standalone Server (the Redis model)
+**Standalone Server** (the Redis model)
 
 ```bash
-hebbs-server                                   # defaults: gRPC :6380, HTTP :6381, data ./hebbs-data
-HEBBS_AUTH_ENABLED=true hebbs-server            # with API key authentication
+hebbs-server start                                # gRPC :6380, HTTP :6381
+HEBBS_AUTH_ENABLED=true hebbs-server start         # with API key authentication
 ```
 
-### Embedded Library (the SQLite model)
+**Embedded Library** (the SQLite model)
 
 ```python
 from hebbs import HEBBS
@@ -497,32 +378,19 @@ e = HEBBS.open("./agent-memory")  # No separate process
 e.remember(...)
 ```
 
-### Edge Mode (robots, laptops, workstations)
-
-Same API, different configuration. A Jetson Orin, MacBook, or Intel laptop runs the complete engine including local reflection with on-device LLMs.
-
----
-
-## Client Libraries
-
-| Language | Package | Status |
-|---|---|---|
-| Python | `pip install hebbs` | Stable (gRPC + embedded via PyO3) |
-| TypeScript | `npm install @hebbs/sdk` | Stable (gRPC, Node.js 18+) |
-| Rust | `hebbs` crate (direct) | Stable |
-| Go | `go get hebbs.ai/client` | Planned |
+**Edge Mode** (robots, laptops, workstations) -- same API, different configuration. Runs the complete engine including local reflection with on-device LLMs.
 
 ---
 
 ## Use Cases
 
-**Voice Sales Agents** -- The most demanding test for agentic memory. A sales agent that remembers prospect history across calls, handles objections with proven responses, and learns which pitches convert over time.
+**Voice Sales Agents** -- Remember prospect history across calls, handle objections with proven responses, learn which pitches convert over time.
 
-**Customer Support** -- Recall past tickets for the same customer, surface solutions from similar issues, reduce escalations through consolidated troubleshooting knowledge.
+**Customer Support** -- Recall past tickets, surface solutions from similar issues, reduce escalations through consolidated troubleshooting knowledge.
 
-**Coding Agents** -- Remember what approaches worked in this codebase, recall past debugging sessions, avoid repeating failed strategies.
+**Coding Agents** -- Remember what approaches worked, recall past debugging sessions, avoid repeating failed strategies.
 
-**Robotics** -- Warehouse robots that learn navigation patterns, share blocked-aisle knowledge across a fleet, and reflect on operational efficiency. All running fully offline on edge hardware.
+**Robotics** -- Learn navigation patterns, share knowledge across a fleet, reflect on operational efficiency. Fully offline on edge hardware.
 
 **Personal Assistants** -- Remember preferences, learn routines, pick up context across conversations.
 
@@ -532,7 +400,7 @@ Same API, different configuration. A Jetson Orin, MacBook, or Intel laptop runs 
 
 We welcome contributions across the stack. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-All contributors must sign our [Contributor License Agreement](CLA.md) before their first PR can be merged. It's a one-time thing -- the CLA bot will walk you through it on your first pull request.
+All contributors must sign our [Contributor License Agreement](CLA.md) before their first PR can be merged.
 
 ---
 
@@ -540,13 +408,11 @@ All contributors must sign our [Contributor License Agreement](CLA.md) before th
 
 HEBBS uses a dual-license model.
 
-**The engine** (hebbs-core, hebbs-storage, hebbs-index, hebbs-embed, hebbs-reflect, hebbs-server, hebbs-cli) is licensed under [BSL 1.1](LICENSE-BSL). This is the same license used by CockroachDB, Sentry, and Terraform. You can use it freely in production. You can read the source, modify it, self-host it, build on top of it. The only thing you can't do is take HEBBS and offer it as a hosted service to third parties. Every version converts to Apache 2.0 after four years.
+**The engine** (hebbs-core, hebbs-storage, hebbs-index, hebbs-embed, hebbs-reflect, hebbs-server, hebbs-cli) is licensed under [BSL 1.1](LICENSE-BSL). Same license as CockroachDB, Sentry, and Terraform. Use it freely in production. The only restriction: you can't offer HEBBS as a hosted service to third parties. Every version converts to Apache 2.0 after four years.
 
-**Client libraries and protocol definitions** (hebbs-client, hebbs-proto, hebbs-ffi) are licensed under [Apache 2.0](LICENSE-APACHE). The code you import into your projects is fully open source with no restrictions.
+**Client libraries and protocol definitions** (hebbs-client, hebbs-proto, hebbs-ffi) are licensed under [Apache 2.0](LICENSE-APACHE). Fully open source with no restrictions.
 
-Educational institutions and non-profit organizations can use the full engine without restriction.
-
-If you need a different licensing arrangement, reach out at parag@hebbs.ai.
+Educational institutions and non-profit organizations can use the full engine without restriction. For other licensing arrangements, reach out at parag@hebbs.ai.
 
 ---
 
