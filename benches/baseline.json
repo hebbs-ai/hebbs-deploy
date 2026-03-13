@@ -1,0 +1,150 @@
+{
+  "results": {
+    "latency": {
+      "operations": [
+        {
+          "max_us": 1677,
+          "mean_us": 1027,
+          "min_us": 800,
+          "name": "remember",
+          "p50_us": 991,
+          "p95_us": 1271,
+          "p999_us": 1677,
+          "p99_us": 1334,
+          "runs": 1000
+        },
+        {
+          "max_us": 13,
+          "mean_us": 1,
+          "min_us": 0,
+          "name": "get",
+          "p50_us": 1,
+          "p95_us": 1,
+          "p999_us": 13,
+          "p99_us": 2,
+          "runs": 1000
+        },
+        {
+          "max_us": 430,
+          "mean_us": 276,
+          "min_us": 220,
+          "name": "recall_similarity",
+          "p50_us": 273,
+          "p95_us": 309,
+          "p999_us": 430,
+          "p99_us": 335,
+          "runs": 1000
+        },
+        {
+          "max_us": 984,
+          "mean_us": 553,
+          "min_us": 450,
+          "name": "recall_temporal",
+          "p50_us": 553,
+          "p95_us": 574,
+          "p999_us": 984,
+          "p99_us": 606,
+          "runs": 1000
+        },
+        {
+          "max_us": 1325,
+          "mean_us": 1106,
+          "min_us": 900,
+          "name": "prime",
+          "p50_us": 1113,
+          "p95_us": 1142,
+          "p999_us": 1325,
+          "p99_us": 1204,
+          "runs": 1000
+        },
+        {
+          "max_us": 1096,
+          "mean_us": 558,
+          "min_us": 430,
+          "name": "revise",
+          "p50_us": 537,
+          "p95_us": 797,
+          "p999_us": 1096,
+          "p99_us": 854,
+          "runs": 1000
+        },
+        {
+          "max_us": 139800,
+          "mean_us": 116834,
+          "min_us": 95000,
+          "name": "forget_single",
+          "p50_us": 116470,
+          "p95_us": 122268,
+          "p999_us": 139800,
+          "p99_us": 128747,
+          "runs": 1000
+        },
+        {
+          "max_us": 4086,
+          "mean_us": 3397,
+          "min_us": 2800,
+          "name": "count",
+          "p50_us": 3386,
+          "p95_us": 3464,
+          "p999_us": 4086,
+          "p99_us": 3606,
+          "runs": 1000
+        }
+      ]
+    },
+    "resources": {
+      "measurements": [
+        {
+          "bytes_per_memory": 1088,
+          "disk_bytes": 1088021,
+          "memory_count": 1000,
+          "rss_bytes": 16384
+        },
+        {
+          "bytes_per_memory": 1027,
+          "disk_bytes": 5138998,
+          "memory_count": 5000,
+          "rss_bytes": 0
+        },
+        {
+          "bytes_per_memory": 1021,
+          "disk_bytes": 10211079,
+          "memory_count": 10000,
+          "rss_bytes": 0
+        }
+      ]
+    },
+    "scalability": {
+      "scale_points": [
+        {
+          "memory_count": 1000,
+          "recall_similarity_p50_us": 273,
+          "recall_similarity_p99_us": 335,
+          "recall_temporal_p50_us": 553,
+          "recall_temporal_p99_us": 606
+        },
+        {
+          "memory_count": 5000,
+          "recall_similarity_p50_us": 300,
+          "recall_similarity_p99_us": 368,
+          "recall_temporal_p50_us": 608,
+          "recall_temporal_p99_us": 667
+        },
+        {
+          "memory_count": 10000,
+          "recall_similarity_p50_us": 330,
+          "recall_similarity_p99_us": 405,
+          "recall_temporal_p50_us": 669,
+          "recall_temporal_p99_us": 733
+        }
+      ]
+    }
+  },
+  "system": {
+    "arch": "x86_64",
+    "os": "linux"
+  },
+  "tier": "quick",
+  "timestamp": "1741276800",
+  "version": "0.1.0"
+}
