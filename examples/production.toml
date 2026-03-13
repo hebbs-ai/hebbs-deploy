@@ -1,0 +1,295 @@
+# HEBBS Production Configuration
+#
+# Every parameter is shown with its default value and documented inline.
+# Uncomment and change only what you need — the defaults are tuned for a
+# moderate-traffic single-node deployment (≤1M memories, ≤100 req/s).
+#
+# Usage:
+#   hebbs-server --config production.toml
+#
+# Environment variable overrides follow the pattern HEBBS_<SECTION>_<KEY>,
+# e.g. HEBBS_SERVER_GRPC_PORT=6380.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# [server] — Network listener and connection management
+# ─────────────────────────────────────────────────────────────────────────────
+[server]
+
+# Port for the gRPC API (protobuf service definitions in proto/).
+# Default: 6380
+# Change if 6380 collides with another service. Clients (hebbs-cli, SDKs)
+# must match. Setting to 0 disables gRPC.
+grpc_port = 6380
+
+# Port for the HTTP/REST API (health checks, metrics, future REST gateway).
+# Default: 6381
+# Must differ from grpc_port. Load balancers probe /v1/health/ready on this
+# port. Setting to 0 disables HTTP.
+http_port = 6381
+
+# Network interface to bind on.
+# Default: "0.0.0.0" (all interfaces)
+# Set to "127.0.0.1" if HEBBS should only accept local connections (e.g.
+# when sitting behind a sidecar proxy). Using "0.0.0.0" on a public IP
+# without a firewall is a security risk.
+bind_address = "0.0.0.0"
+
+# Maximum number of concurrent client connections across both gRPC and HTTP.
+# Default: 1000
+# Each connection holds a small amount of memory (~16 KB). Set higher for
+# bursty workloads; set lower to protect a memory-constrained node. If the
+# limit is hit, new connections receive UNAVAILABLE / 503.
+max_connections = 1000
+
+# Per-request timeout in milliseconds. Covers the full request lifecycle
+# from acceptance to response.
+# Default: 30000 (30 s)
+# Lower this for latency-sensitive deployments (e.g. 5000 ms). Setting it
+# too low will cause large batch recalls or bulk ingests to time out.
+request_timeout_ms = 30000
+
+# Size of the blocking thread pool (used for RocksDB I/O and CPU-heavy
+# embedding work).
+# Default: 256
+# Rule of thumb: 2× the number of physical cores. Too few threads starve
+# I/O under load; too many waste memory (~8 MB stack per thread).
+max_blocking_threads = 256
+
+# Grace period for in-flight requests during shutdown (SIGTERM).
+# Default: 15
+# After this timeout, the process force-exits (exit code 1). Set this
+# longer than your longest expected request. Kubernetes
+# terminationGracePeriodSeconds and systemd TimeoutStopSec must both
+# exceed this value by ~5s to let the application handle its own timeout
+# before the orchestrator sends SIGKILL.
+shutdown_timeout_secs = 15
+
+# Maximum size of a single inbound request body in bytes.
+# Default: 1048576 (1 MiB)
+# Protects against memory exhaustion from oversized payloads. Increase if
+# you regularly ingest very long memory content. A value of 0 disables the
+# limit entirely (not recommended in production).
+max_request_size_bytes = 1048576
+
+# ─────────────────────────────────────────────────────────────────────────────
+# [storage] — RocksDB and on-disk persistence
+# ─────────────────────────────────────────────────────────────────────────────
+[storage]
+
+# Root directory for all persistent state: RocksDB SSTs, WAL, LOCK file,
+# and the embedding model cache.
+# Default: "/data"
+# Must be on a local filesystem that supports fsync (ext4, xfs, APFS).
+# NFS and FUSE mounts are NOT supported — RocksDB's LOCK file and WAL
+# semantics require POSIX advisory locks and durable fdatasync.
+# In Kubernetes, point this at a PersistentVolumeClaim.
+data_dir = "/data"
+
+# RocksDB block cache size in megabytes. This is the primary read-path
+# cache — hot SST blocks live here to avoid disk I/O.
+# Default: 256
+# Size this to ~25-50% of available RAM. Undersizing causes read
+# amplification; oversizing starves the OS page cache and embedding
+# buffers. Monitor cache hit rate via the block_cache_hit_ratio metric.
+block_cache_mb = 256
+
+# RocksDB memtable (write buffer) size in megabytes. Data is written here
+# before being flushed to SST files.
+# Default: 64
+# Larger buffers absorb write bursts and reduce flush frequency, but
+# increase memory usage and recovery time after a crash. Each column
+# family uses its own write buffer, so total memory is roughly
+# write_buffer_mb × number_of_column_families.
+write_buffer_mb = 64
+
+# ─────────────────────────────────────────────────────────────────────────────
+# [embedding] — Vector embedding model configuration
+# ─────────────────────────────────────────────────────────────────────────────
+[embedding]
+
+# Embedding provider: "onnx" (real ONNX Runtime model) or "mock" (hash-based,
+# testing only). Default: "onnx"
+# The ONNX provider loads BGE-small-en-v1.5 by default and auto-downloads
+# model files from HuggingFace on first start.
+provider = "onnx"
+
+# Dimensionality of the embedding vectors.
+# Default: 384 (matches BGE-small-en-v1.5)
+# This MUST match the model you deploy. Mismatched dimensions corrupt the
+# HNSW index silently — vectors are truncated or zero-padded without error.
+# Common values: 384 (BGE-small), 768 (BGE-base), 1024 (BGE-large).
+dimensions = 384
+
+# Maximum number of texts to embed in a single forward pass.
+# Default: 256
+# Larger batches increase throughput but also latency and peak memory.
+# For GPU-backed embedding, match this to GPU memory. For ONNX CPU
+# inference, 256 is a good balance. Setting this above the model's
+# positional encoding limit has no benefit.
+max_batch_size = 256
+
+# Whether to auto-download model files from HuggingFace on first start.
+# Default: true
+# Set to false for air-gapped deployments where model files are
+# pre-provisioned on disk.
+auto_download = true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# [decay] — Temporal decay and auto-forget
+# ─────────────────────────────────────────────────────────────────────────────
+[decay]
+
+# Whether temporal decay is active. When enabled, memory salience scores
+# decrease exponentially over time, simulating natural forgetting.
+# Default: true
+# Disable only for archival use cases where every memory must be retained
+# at full strength indefinitely. Disabling also skips auto-forget.
+enabled = true
+
+# Half-life of the exponential decay function in days. After this many days
+# without reinforcement, a memory's salience drops to 50%.
+# Default: 30
+# Shorter half-lives (7-14 days) suit fast-moving contexts (chat agents).
+# Longer half-lives (90-365 days) suit knowledge bases. Setting this to 0
+# makes all memories decay instantly — almost certainly not what you want.
+half_life_days = 30
+
+# How often (in seconds) the background sweep runs to recompute decayed
+# salience scores and trigger auto-forget for memories below threshold.
+# Default: 3600 (1 hour)
+# Lower values keep salience scores fresher but increase CPU and I/O.
+# In high-write environments, 300-600 s is reasonable. Values below 60 s
+# risk overlapping sweeps on large datasets.
+sweep_interval_secs = 3600
+
+# Number of memories processed per sweep iteration.
+# Default: 10000
+# Controls the granularity of sweep work. Larger batches finish faster but
+# hold a RocksDB snapshot longer, increasing read amplification for
+# concurrent queries. Smaller batches are gentler but take more iterations.
+batch_size = 10000
+
+# Salience threshold below which a memory is automatically forgotten
+# (tombstoned). Forgotten memories are excluded from recall results.
+# Default: 0.01
+# Range: 0.0 to 1.0. Lower values retain more memories longer. Setting
+# to 0.0 disables auto-forget (memories decay but never disappear).
+# Setting above 0.1 aggressively prunes — test recall quality first.
+auto_forget_threshold = 0.01
+
+# ─────────────────────────────────────────────────────────────────────────────
+# [reflect] — Background insight generation pipeline
+# ─────────────────────────────────────────────────────────────────────────────
+[reflect]
+
+# Whether the reflect pipeline is active. When enabled, HEBBS periodically
+# synthesizes higher-order insights from stored memories using LLM calls.
+# Default: false
+# Requires a working LLM provider (see proposal_provider / validation_provider).
+# LLM calls happen exclusively in the background — never on the hot path.
+# Enable only after verifying provider connectivity.
+enabled = false
+
+# Provider used to generate insight proposals from memory clusters.
+# Default: "mock" (returns no-op proposals — safe for testing)
+# Production values: "openai", "anthropic", "gemini", "ollama"
+# Env vars for API keys: OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY
+# Changing this while reflect is enabled takes effect on the next cycle.
+proposal_provider = "mock"
+# proposal_model = "gpt-4o"         # for openai
+# proposal_model = "gemini-2.0-flash" # for gemini
+
+# Provider used to validate and score proposed insights before storage.
+# Default: "mock"
+# Can differ from proposal_provider (e.g. propose with a fast model,
+# validate with a stronger one). Must be reachable from the HEBBS process.
+validation_provider = "mock"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# [logging] — Structured logging configuration
+# ─────────────────────────────────────────────────────────────────────────────
+[logging]
+
+# Minimum log level. Levels: trace, debug, info, warn, error.
+# Default: "info"
+# Use "debug" only during active troubleshooting — it is extremely verbose
+# and will fill disks quickly. "warn" is acceptable for stable production
+# environments where you only want actionable alerts.
+level = "info"
+
+# Output format for log lines.
+# Default: "json"
+# "json" — structured JSON, one object per line. Preferred for production
+#   because log aggregators (Loki, Datadog, ELK) parse it natively.
+# "pretty" — human-readable colored output. Use for local development only;
+#   it is expensive to parse and lacks structured fields.
+format = "json"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# [metrics] — Prometheus-compatible metrics endpoint
+# ─────────────────────────────────────────────────────────────────────────────
+[metrics]
+
+# Whether the metrics endpoint is active.
+# Default: true
+# Disable only if you have no monitoring stack. Without metrics you lose
+# visibility into latency histograms, cache hit rates, and compaction
+# pressure — flying blind in production.
+enabled = true
+
+# HTTP path where Prometheus-format metrics are served.
+# Default: "/v1/metrics"
+# Change if your ingress or service mesh reserves this path. The endpoint
+# is served on the HTTP port (http_port above).
+endpoint = "/v1/metrics"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# [auth] — Authentication and authorization
+# ─────────────────────────────────────────────────────────────────────────────
+[auth]
+
+# Whether authentication is required for API requests.
+# Default: true
+# When enabled, every request must carry a valid bearer token. Disabling
+# auth in production is a security audit failure — do so only for local
+# development or behind a trusted service mesh that handles AuthN upstream.
+enabled = true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# [tenancy] — Multi-tenant isolation
+# ─────────────────────────────────────────────────────────────────────────────
+[tenancy]
+
+# Tenancy mode. Determines how tenant data is isolated.
+# Values: "single" — one tenant, no isolation overhead.
+#         "multi"  — full tenant isolation with per-tenant column families.
+# Default: "single"
+# Switching modes requires a data migration. Plan this before launch.
+# Multi-tenant mode adds ~2 KB of overhead per tenant for metadata.
+mode = "single"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# [rate_limit] — Per-client rate limiting
+# ─────────────────────────────────────────────────────────────────────────────
+[rate_limit]
+
+# Whether rate limiting is enforced.
+# Default: true
+# Disable only in trusted internal environments. Without rate limits, a
+# single misbehaving client can saturate the server.
+enabled = true
+
+# Maximum sustained requests per second per client (identified by auth
+# token or IP if auth is disabled).
+# Default: 100
+# This is a token-bucket rate, not a hard wall — short bursts above this
+# rate are allowed up to burst_size. Set based on your expected per-client
+# QPS. Too low rejects legitimate traffic; too high defeats the purpose.
+requests_per_second = 100
+
+# Maximum burst size (token bucket capacity).
+# Default: 50
+# Allows a client to send up to this many requests instantly before the
+# sustained rate kicks in. Size this to absorb natural request clustering
+# (e.g. page loads that fire 10 parallel recall queries).
+burst_size = 50
