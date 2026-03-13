@@ -1,0 +1,157 @@
+---
+title: "Output Formats"
+description: "Control CLI output: human, JSON, and raw formats."
+---
+
+The HEBBS CLI supports three output formats, controlled by the `--format` flag or the `HEBBS_FORMAT` environment variable.
+
+## Human (default)
+
+Formatted for terminal readability with colors, tables, and aligned columns:
+
+```bash
+hebbs-cli recall --entity customer-42 --query "contact preferences"
+```
+
+```
+ # │ Score  │ Relevance │ Content                          │ Kind     │ Created
+───┼────────┼───────────┼──────────────────────────────────┼──────────┼────────────────
+ 1 │ 0.7430 │ 0.9430    │ Customer prefers email over phone │ episodic │ 2025-01-15 14:32
+ 2 │ 0.6710 │ 0.8710    │ Follows up weekly via newsletter  │ episodic │ 2025-01-14 09:15
+
+2 memories recalled in 4.2ms
+```
+
+The `Score` column is the **composite score** (weighted blend of relevance, recency, importance, and reinforcement). The `Relevance` column is the **raw cosine similarity** between the query and the memory embedding. See [Composite Scoring](/concepts/recall-strategies/#composite-scoring) for details.
+
+Human format is the default and is designed for interactive use. It automatically detects terminal width and truncates long content.
+
+## JSON
+
+Machine-readable JSON output for scripting and pipeline integration:
+
+```bash
+hebbs-cli recall --entity customer-42 --query "contact preferences" --format json
+```
+
+```json
+[
+  {
+    "memory": {
+      "memory_id": "01KK3S0KXYE22EFF489YRTH559",
+      "content": "Customer prefers email over phone",
+      "importance": 0.5,
+      "kind": "episode",
+      "entity_id": "customer-42",
+      "created_at": 1705326720000000
+    },
+    "score": 0.7430,
+    "relevance": 0.9430,
+    "strategy_details": [
+      {
+        "strategy": "similarity",
+        "relevance": 0.9430,
+        "distance": 0.0570
+      }
+    ]
+  }
+]
+```
+
+The `score` field is the composite score. The `relevance` field is the raw cosine similarity from the primary strategy. The `strategy_details` array contains per-strategy metadata including the raw relevance for each strategy that found the result.
+
+### remember JSON output
+
+The `remember` command returns a single JSON object (not an array) with the stored memory:
+
+```bash
+hebbs-cli remember "Customer prefers email over phone" \
+  --importance 0.8 \
+  --entity-id customer-42 \
+  --format json
+```
+
+```json
+{
+  "memory_id": "01KK3S0KXYE22EFF489YRTH559",
+  "content": "Customer prefers email over phone",
+  "importance": 0.8,
+  "kind": "episode",
+  "entity_id": "customer-42",
+  "created_at": 1705326720000000
+}
+```
+
+Extract the `memory_id` for use in subsequent `--edge` flags:
+
+```bash
+MEM_ID=$(hebbs-cli remember "fact one" --format json | jq -r '.memory_id')
+hebbs-cli remember "fact two" --edge "$MEM_ID:followed_by" --format json
+```
+
+### Piping to jq
+
+JSON format pairs well with `jq` for extraction and transformation:
+
+```bash
+# Extract just the content from recall results
+hebbs-cli recall --entity customer-42 --query "plans" --format json \
+  | jq -r '.memories[].content'
+
+# Count memories
+hebbs-cli recall --entity customer-42 --query "all" --format json \
+  | jq '.memories | length'
+
+# Filter by score threshold
+hebbs-cli recall --entity customer-42 --query "plans" --format json \
+  | jq '.memories[] | select(.score > 0.9)'
+```
+
+## Raw
+
+Minimal output with one value per line, no headers or decoration. Useful for piping into other commands:
+
+```bash
+hebbs-cli recall --entity customer-42 --query "contact preferences" --format raw
+```
+
+```
+Customer prefers email over phone
+Follows up weekly via newsletter
+```
+
+### Use Cases for Raw Format
+
+```bash
+# Feed recall results into another command
+hebbs-cli recall --entity customer-42 --query "notes" --format raw | wc -l
+
+# Store memory IDs for batch operations
+hebbs-cli recall --entity customer-42 --query "outdated" --format raw \
+  | hebbs-cli forget --entity customer-42 --ids -
+```
+
+## Setting a Default Format
+
+### Environment Variable
+
+```bash
+export HEBBS_FORMAT=json
+```
+
+### Config File
+
+In `~/.config/hebbs/config.toml`:
+
+```toml
+format = "json"
+```
+
+### REPL
+
+In the interactive REPL, use the `.format` dot-command:
+
+```
+hebbs> .format json
+Output format set to: json
+```

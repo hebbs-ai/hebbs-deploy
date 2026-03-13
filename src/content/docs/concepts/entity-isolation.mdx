@@ -1,0 +1,56 @@
+---
+title: Entity Isolation
+description: How HEBBS scopes memories by entity for multi-tenant, multi-agent architectures.
+---
+
+Entities are the primary scope boundary in HEBBS. Every memory belongs to an entity. Recall, reflection, and subscription are scoped by entity unless explicitly configured for cross-entity access.
+
+## What Entities Are
+
+An entity is a logical scope. It could represent:
+
+- **A user**: All memories for a single end-user in a SaaS app.
+- **A customer**: All memories for a B2B customer (company, account, or contact).
+- **An agent**: All memories for a specific AI agent instance.
+- **A project**: All memories for a project, workspace, or team.
+- **A conversation**: All memories for a single chat or call session.
+
+The choice is application-defined. HEBBS does not prescribe what an entity "means"; it only enforces that recall and other operations are scoped by `entity_id` unless you opt into cross-entity behavior.
+
+## Tenant vs Entity
+
+| | Entity (`entity_id`) | Tenant (`tenant_id`) |
+|---|---|---|
+| **Purpose** | Domain grouping ("about what") | Infrastructure isolation ("owned by whom") |
+| **Isolation** | Logical — query filters, reflection scope | Structural — storage key prefix, index partitioning |
+| **Required** | No (optional on most operations) | No (derived from API key, or set explicitly) |
+| **Cross-scope** | Yes, within the same tenant | Never — tenants are hard boundaries |
+| **Maps to** | Customer, user, project, conversation | Organization, workspace, deployment |
+| **Set via** | Per-operation parameter | API key (auth mode) or SDK constructor / CLI flag |
+
+**Tenant** is a higher-level isolation boundary. All storage keys are prefixed by tenant. HNSW index traversal is partitioned per tenant. Data from one tenant is structurally invisible to another, even via similarity search. Tenants typically map to organizations, workspaces, or SaaS customers.
+
+**Entity** is a finer-grained scope within a tenant. One tenant can have many entities. For example, tenant `acme-corp` might have entities `user-123`, `user-456`, `project-alpha`. Memories for `user-123` are isolated from `user-456` during entity-scoped recall, but cross-entity similarity search within the tenant is possible by omitting `entity_id`.
+
+### How tenant_id is resolved
+
+1. **Auth enabled (default)**: The `Authorization: Bearer <key>` header carries an API key. The server resolves the tenant from the key's metadata. The `tenant_id` in the request message is validated to match the key's tenant — mismatches are rejected.
+2. **Auth disabled** (`HEBBS_AUTH_ENABLED=false`): All operations use the `"default"` tenant unless an explicit `tenant_id` is provided via the SDK constructor or CLI `--tenant` flag.
+3. **SDKs**: Python and TypeScript set `tenant_id` at client construction time. It is injected into every gRPC request automatically.
+4. **CLI**: Use `--tenant <id>` or `HEBBS_TENANT=<id>` environment variable.
+
+## How Recall Is Scoped
+
+By default, `recall` returns only memories for the specified `entity_id`. Similarity search, temporal scans, and causal traversal all filter by entity. This ensures an agent serving "user-123" does not accidentally receive context from "user-456".
+
+You can pass multiple entity IDs to recall across a set of entities (e.g., "user-123" and "project-alpha" if the user is a member). Cross-entity recall is opt-in and should be used only when the application logic requires it (e.g., shared project context).
+
+## Cross-Entity Patterns
+
+Some use cases require cross-entity access:
+
+- **Shared knowledge base**: An entity "company-knowledge" that all user entities can read.
+- **Multi-agent collaboration**: Agents working on the same task share an entity.
+- **Aggregate analytics**: Reflection over all entities in a tenant to find org-wide patterns (requires elevated permissions).
+
+HEBBS supports these via explicit cross-entity recall or by designating certain entities as "shared." Access control (who can read/write which entities) is typically enforced at the application layer or via HEBBS's auth hooks.

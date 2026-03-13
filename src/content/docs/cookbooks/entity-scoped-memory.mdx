@@ -1,0 +1,155 @@
+---
+title: "Entity-Scoped Memory"
+description: "Partition memories by customer, user, or agent."
+---
+
+HEBBS enforces strict entity isolation — memories stored under one entity are invisible to queries against another. This cookbook demonstrates how to use entity scoping for multi-tenant applications.
+
+## Concept
+
+An "entity" in HEBBS is a namespace that isolates memories. Common entity schemes:
+
+| Pattern | Example | Use Case |
+|---|---|---|
+| Customer ID | `customer-42` | CRM, sales agents |
+| User ID | `user-alice` | Personal assistants |
+| Session ID | `session-abc123` | Conversation agents |
+| Agent ID | `agent-support-1` | Agent-specific knowledge |
+| Composite | `org-acme:user-bob` | Multi-level isolation |
+
+## Create Memories for Multiple Entities
+
+```python
+import asyncio
+from hebbs import HebbsClient, MemoryKind
+
+async def main():
+    async with HebbsClient.connect("localhost:50051") as client:
+
+        # Store memories for Entity A
+        await client.remember(
+            content="Acme Corp is expanding to Europe next quarter",
+            entity="acme-corp",
+            kind=MemoryKind.EPISODIC,
+        )
+        await client.remember(
+            content="Acme's budget is $500K for Q2",
+            entity="acme-corp",
+            kind=MemoryKind.SEMANTIC,
+        )
+
+        # Store memories for Entity B
+        await client.remember(
+            content="Beta Inc is focused on North American market",
+            entity="beta-inc",
+            kind=MemoryKind.EPISODIC,
+        )
+        await client.remember(
+            content="Beta's budget is $200K for Q2",
+            entity="beta-inc",
+            kind=MemoryKind.SEMANTIC,
+        )
+
+        print(f"Acme memories: {await client.count('acme-corp')}")
+        print(f"Beta memories: {await client.count('beta-inc')}")
+
+asyncio.run(main())
+```
+
+## Prove Isolation
+
+Querying one entity never returns memories from another:
+
+```python
+# Query Acme — should only see Acme memories
+acme_results = await client.recall(
+    query="What is the budget?",
+    entity="acme-corp",
+    strategy="similarity",
+    top_k=10,
+)
+
+print("Acme results:")
+for r in acme_results.memories:
+    print(f"  [{r.score:.3f}] {r.memory.content}")
+    assert r.memory.entity == "acme-corp"  # Always true
+
+# Query Beta — should only see Beta memories
+beta_results = await client.recall(
+    query="What is the budget?",
+    entity="beta-inc",
+    strategy="similarity",
+    top_k=10,
+)
+
+print("\nBeta results:")
+for r in beta_results.memories:
+    print(f"  [{r.score:.3f}] {r.memory.content}")
+    assert r.memory.entity == "beta-inc"  # Always true
+```
+
+## Entity-Wide Operations
+
+### Forget All Memories for an Entity
+
+```python
+result = await client.forget("acme-corp")
+print(f"Deleted {result.deleted_count} memories for acme-corp")
+
+# Verify
+assert await client.count("acme-corp") == 0
+assert await client.count("beta-inc") > 0  # Beta unaffected
+```
+
+### Per-Entity Reflection Policies
+
+```python
+# Enable aggressive reflection for high-value accounts
+await client.set_policy(
+    "acme-corp",
+    reflect_enabled=True,
+    reflect_interval=1800,  # every 30 minutes
+    reflect_min_memories=3,
+)
+
+# Disable reflection for low-activity accounts
+await client.set_policy(
+    "beta-inc",
+    reflect_enabled=False,
+)
+```
+
+## Composite Entity Patterns
+
+For multi-level isolation, use composite entity keys:
+
+```python
+# Organization-level memories (shared across users)
+await client.remember(
+    content="Company-wide policy: no discounts over 15%",
+    entity="org-acme",
+    kind=MemoryKind.SEMANTIC,
+)
+
+# User-level memories within the organization
+await client.remember(
+    content="Bob prefers morning meetings",
+    entity="org-acme:user-bob",
+    kind=MemoryKind.SEMANTIC,
+)
+
+# Query at the user level
+results = await client.recall(
+    query="What do I know about Bob?",
+    entity="org-acme:user-bob",
+    top_k=5,
+)
+```
+
+To query across levels, your application layer retrieves from both entities and merges results.
+
+## Performance Considerations
+
+- Entity isolation is structural — it's enforced at the storage and index level via key prefixes, not post-query filtering.
+- Each entity's HNSW index is logically independent. 1000 entities with 1000 memories each performs the same as 1 entity with 1000 memories for query latency.
+- Entity-wide `forget()` is efficient — it uses prefix deletion in RocksDB.

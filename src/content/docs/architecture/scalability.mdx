@@ -1,0 +1,107 @@
+---
+title: "Scalability"
+description: "How HEBBS handles scale in cloud and edge environments."
+---
+
+HEBBS is designed to operate efficiently from edge devices with thousands of memories to cloud deployments with tens of millions. This page describes the scaling characteristics, bottlenecks, and planned improvements.
+
+## Cloud Scaling
+
+### Memory Count Growth
+
+| Memory Count | HNSW Query (p99) | Remember (p99) | Storage Size | RAM Footprint |
+|---|---|---|---|---|
+| 100K | < 2 ms | < 3 ms | ~200 MB | ~500 MB |
+| 1M | < 5 ms | < 4 ms | ~2 GB | ~4 GB |
+| 10M | < 10 ms | < 5 ms | ~20 GB | ~32 GB |
+| 100M | < 20 ms | < 5 ms | ~200 GB | ~256 GB |
+
+### Bottleneck: HNSW Growth
+
+The HNSW index is the primary memory consumer and the main factor in query latency scaling. As the graph grows:
+
+- **Memory usage** scales as `O(n * M * d)` where n is the number of memories, M is the max connections per node, and d is the dimensionality (384).
+- **Query latency** scales as `O(log n * ef_search)` — logarithmic but with a constant factor determined by ef_search.
+
+Mitigation strategies:
+
+- Reduce `M` from 16 to 12 for memory-constrained deployments (small recall quality trade-off).
+- Shard by entity — each entity's HNSW index is independent.
+- Use `prime()` to preload hot entities into OS page cache.
+
+### Bottleneck: Write Throughput
+
+Write throughput is bounded by:
+
+- Embedding generation (~1ms per memory on CPU, batched)
+- RocksDB WAL fsync (configurable: ~0.1ms with group commit)
+- HNSW insertion (~0.5ms at 10M memories)
+
+Sustained write throughput targets:
+
+| Configuration | Writes/sec |
+|---|---|
+| CPU, single-threaded | ~500 |
+| CPU, batched (32) | ~3,000 |
+| GPU (CUDA), batched | ~10,000 |
+
+### Bottleneck: Reflect Contention
+
+The reflection pipeline reads from the memory store while writes continue. Contention is managed by:
+
+- Reflection takes a snapshot of the memory store (RocksDB snapshot) and operates on the snapshot.
+- Insights generated from the snapshot are written back after the cycle completes.
+- No locks are held on the read path during reflection.
+
+## Edge Scaling
+
+HEBBS is designed to run on edge devices with constrained resources.
+
+### Edge Constraints
+
+| Resource | Minimum | Recommended |
+|---|---|---|
+| CPU | 2 cores | 4 cores |
+| RAM | 256 MB | 1 GB |
+| Disk | 100 MB | 1 GB |
+
+### Local Models
+
+On edge deployments, HEBBS runs embeddings locally via ONNX Runtime. The BGE-small model (33 MB) fits comfortably in edge memory budgets.
+
+For reflection on edge, use a local LLM via Ollama:
+
+```toml
+[reflect]
+provider = "ollama"
+model = "llama3.2:1b"
+```
+
+### Edge-to-Cloud Sync (Planned)
+
+A sync protocol is planned for future releases that enables:
+
+- **Selective sync** — choose which entities or memory types sync to the cloud.
+- **Conflict resolution** — last-write-wins with vector clock ordering.
+- **Bandwidth efficiency** — delta sync with compressed batches.
+- **Offline-first** — full operation without connectivity; sync when available.
+
+## Multi-Tenant Scaling
+
+HEBBS isolates memories by entity, which naturally supports multi-tenant deployments:
+
+- Each entity has independent indexes and storage prefixes.
+- Entity-level operations (`forget`, `reflect`, `count`) do not affect other entities.
+- Per-entity policies control reflection behavior and resource allocation.
+
+For large multi-tenant deployments, monitor per-entity memory counts and storage sizes via the metrics endpoint to identify hot tenants.
+
+## Planned Improvements
+
+| Feature | Target | Status |
+|---|---|---|
+| Read replicas | Horizontal read scaling | Planned |
+| Entity sharding | Distribute entities across instances | Planned |
+| Tiered storage | Hot/warm/cold memory tiers | Planned |
+| Edge-cloud sync | Selective bidirectional sync | Planned |
+| Quantized HNSW | 4-bit quantization for 4x memory reduction | Research |

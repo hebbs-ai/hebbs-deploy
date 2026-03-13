@@ -1,0 +1,129 @@
+---
+title: "Terraform (AWS)"
+description: "Deploy HEBBS on AWS EKS with the Terraform module."
+---
+
+The HEBBS Terraform module provisions an AWS EKS cluster pre-configured for running HEBBS, including networking, storage, and IAM configuration.
+
+## Prerequisites
+
+- **Terraform** >= 1.5
+- **AWS CLI** configured with appropriate credentials
+- **kubectl** installed locally
+- An AWS account with permissions to create VPC, EKS, EC2, EBS, and IAM resources
+
+## Module Source
+
+```hcl
+module "hebbs" {
+  source  = "github.com/hebbs-ai/terraform-aws-hebbs?ref=v0.1.0"
+
+  cluster_name    = "hebbs-production"
+  region          = "us-east-1"
+  instance_type   = "m6i.xlarge"
+  node_count      = 2
+  ebs_volume_size = 100
+
+  hebbs_version   = "0.1.0"
+  enable_tls      = true
+  enable_monitoring = true
+
+  tags = {
+    Environment = "production"
+    Team        = "platform"
+  }
+}
+```
+
+## Deployment Steps
+
+### 1. Initialize
+
+```bash
+terraform init
+```
+
+### 2. Plan
+
+```bash
+terraform plan -out=tfplan
+```
+
+Review the plan to confirm the resources that will be created.
+
+### 3. Apply
+
+```bash
+terraform apply tfplan
+```
+
+This typically takes 15–20 minutes to provision the EKS cluster and deploy HEBBS.
+
+### 4. Configure kubectl
+
+```bash
+aws eks update-kubeconfig \
+  --name hebbs-production \
+  --region us-east-1
+```
+
+### 5. Verify
+
+```bash
+kubectl get pods -n hebbs
+hebbs-cli status --address $(terraform output -raw hebbs_endpoint)
+```
+
+## Module Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `cluster_name` | (required) | EKS cluster name |
+| `region` | (required) | AWS region |
+| `instance_type` | `m6i.large` | EC2 instance type for worker nodes |
+| `node_count` | `2` | Number of worker nodes |
+| `ebs_volume_size` | `50` | EBS volume size in GB for HEBBS data |
+| `hebbs_version` | `latest` | HEBBS image tag |
+| `enable_tls` | `false` | Enable TLS with ACM certificate |
+| `enable_monitoring` | `false` | Deploy Prometheus + Grafana stack |
+| `vpc_cidr` | `10.0.0.0/16` | VPC CIDR block |
+| `tags` | `{}` | Tags to apply to all resources |
+
+## Outputs
+
+| Output | Description |
+|---|---|
+| `hebbs_endpoint` | gRPC endpoint address (NLB DNS name) |
+| `metrics_endpoint` | Prometheus metrics endpoint |
+| `grafana_url` | Grafana dashboard URL (if monitoring enabled) |
+| `cluster_name` | EKS cluster name |
+| `kubeconfig_command` | Command to configure kubectl |
+
+## Architecture
+
+The module creates:
+
+- **VPC** with public and private subnets across 3 availability zones
+- **EKS cluster** with managed node group
+- **EBS CSI driver** for persistent volume provisioning (gp3)
+- **Network Load Balancer** for gRPC traffic
+- **IAM roles** for EKS, worker nodes, and EBS CSI
+- **Helm release** of the HEBBS chart with configured values
+
+## Cost Estimate
+
+| Component | Approximate Monthly Cost |
+|---|---|
+| EKS control plane | $73 |
+| 2x m6i.xlarge nodes | $280 |
+| 100 GB gp3 EBS | $8 |
+| Network Load Balancer | $16 + data transfer |
+| **Total** | **~$377/month** |
+
+## Destroying
+
+```bash
+terraform destroy
+```
+
+This removes all AWS resources. Data stored in EBS volumes is permanently deleted.

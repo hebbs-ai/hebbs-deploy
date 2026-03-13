@@ -1,0 +1,57 @@
+---
+title: Error Codes
+description: gRPC status codes, HTTP status codes, and the HEBBS error taxonomy.
+---
+
+## gRPC Status Codes
+
+HEBBS uses standard gRPC status codes. Common mappings:
+
+| gRPC Code | Name | Meaning |
+|-----------|------|---------|
+| 0 | OK | Success |
+| 3 | INVALID_ARGUMENT | Malformed request, validation failure |
+| 5 | NOT_FOUND | Memory or entity not found |
+| 7 | PERMISSION_DENIED | Tenant/entity isolation violation |
+| 8 | RESOURCE_EXHAUSTED | Rate limit, quota, or bounded resource exceeded |
+| 14 | UNAVAILABLE | Server overloaded or temporarily down |
+| 16 | UNAUTHENTICATED | Missing or invalid auth (if auth enabled) |
+
+## HTTP Status Codes
+
+REST API maps gRPC codes to HTTP:
+
+| gRPC Code | HTTP Status |
+|-----------|-------------|
+| OK | 200 |
+| INVALID_ARGUMENT | 400 Bad Request |
+| NOT_FOUND | 404 Not Found |
+| PERMISSION_DENIED | 403 Forbidden |
+| RESOURCE_EXHAUSTED | 429 Too Many Requests |
+| UNAVAILABLE | 503 Service Unavailable |
+| UNAUTHENTICATED | 401 Unauthorized |
+
+## Error Response Format
+
+REST errors return JSON:
+
+```json
+{
+  "code": "INVALID_ARGUMENT",
+  "message": "content is required",
+  "details": []
+}
+```
+
+gRPC errors use the standard `google.rpc.Status` format with optional `details` for structured error info.
+
+## Common Errors
+
+| Error | Cause | Resolution |
+|-------|-------|------------|
+| `content is required` | Remember request missing content | Provide non-empty `content` |
+| `memory not found` | Revise/Forget with invalid ID | Verify memory exists and entity scope |
+| `entity_id required` | Forget without entity_id or memory_ids | Provide at least one |
+| `strategy config invalid` | Recall with malformed strategy | Check strategy name and config schema |
+| `max_memories exceeded` | Request exceeds bounded limit | Reduce batch size or `top_k` |
+| `rate limit exceeded` | Too many requests | Back off, respect rate limits |

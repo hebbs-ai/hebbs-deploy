@@ -1,0 +1,61 @@
+---
+title: remember
+description: Store a new memory with content, importance, context, and optional edges.
+---
+
+## Overview
+
+The `remember` operation stores a new memory in HEBBS. The memory is written to the WAL, indexed for similarity and temporal search, and becomes immediately queryable. Embedding generation and index updates may complete asynchronously (ack-first semantics).
+
+## API Access
+
+| Protocol | Service/Method | Endpoint |
+|----------|----------------|----------|
+| **gRPC** | `MemoryService.Remember` | — |
+| **REST** | POST | `/v1/memories` |
+
+## Request Fields
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `content` | string | Yes | — | The primary payload: text or structured data. This is what gets embedded for similarity search. |
+| `importance` | float | No | 0.5 | Salience score (0.0–1.0). Higher values are prioritized during recall and decay more slowly. |
+| `context` | map | No | {} | Arbitrary key-value metadata (e.g., `source`, `channel`, `session_id`). Used for filtering. |
+| `entity_id` | string | No | — | Scope boundary. All recall is scoped by entity unless explicitly cross-entity. |
+| `edges` | array | No | [] | Typed relationships to other memories: `CausedBy`, `RelatedTo`, `FollowedBy`, etc. |
+| `tenant_id` | string | No | Derived from API key or `"default"` | Tenant scope for data isolation. Normally derived from the API key by the server. Override only when running without authentication or for cross-tenant administrative operations. |
+
+> **Note:** For REST, `tenant_id` is derived from the `Authorization` header — not passed in the request body. For gRPC, it can be set explicitly in the request message but is overridden by the API key's tenant when auth is enabled.
+
+## Response
+
+Returns the created `Memory` object with `id`, `content`, `importance`, `context`, `entity_id`, `edges`, `created_at`, `updated_at`, and `kind` (Episode).
+
+## Examples
+
+### curl (REST)
+
+```bash
+curl -s -X POST http://localhost:6381/v1/memories \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $HEBBS_API_KEY" \
+  -d '{
+    "content": "User prefers dark mode and keyboard shortcuts.",
+    "importance": 0.8,
+    "context": {"source": "settings", "session_id": "sess_abc123"},
+    "entity_id": "user_42"
+  }' | jq .
+```
+
+### grpcurl (gRPC)
+
+```bash
+grpcurl -plaintext \
+  -H "authorization: Bearer $HEBBS_API_KEY" \
+  -d '{
+    "content": "User prefers dark mode and keyboard shortcuts.",
+    "importance": 0.8,
+    "context": {"source": "settings"},
+    "entity_id": "user_42"
+  }' localhost:6380 hebbs.MemoryService/Remember
+```

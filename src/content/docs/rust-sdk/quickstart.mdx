@@ -1,0 +1,123 @@
+---
+title: "Rust SDK Quick Start"
+description: "Add HEBBS to your Rust project."
+---
+
+This guide walks you through adding the HEBBS client to a Rust project, connecting to a server, and performing basic memory operations.
+
+## Add the Dependency
+
+Add `hebbs-client` to your `Cargo.toml`:
+
+```toml
+[dependencies]
+hebbs-client = "0.1"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+```
+
+## Connect to HEBBS
+
+```rust
+use hebbs_client::HebbsClient;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let client = HebbsClient::builder()
+        .address("http://localhost:50051")
+        .connect()
+        .await?;
+
+    let health = client.health().await?;
+    println!("Server: {} ({})", health.version, health.status);
+
+    Ok(())
+}
+```
+
+## Store Memories
+
+```rust
+use hebbs_client::{HebbsClient, MemoryKind};
+
+let m1 = client
+    .remember("Expanding to European market next quarter")
+    .entity("acme-corp")
+    .kind(MemoryKind::Episodic)
+    .send()
+    .await?;
+
+let m2 = client
+    .remember("GDPR compliance is the top priority for expansion")
+    .entity("acme-corp")
+    .kind(MemoryKind::Semantic)
+    .metadata("source", "discovery-call")
+    .send()
+    .await?;
+
+println!("Stored {} and {}", m1.id, m2.id);
+```
+
+## Recall Memories
+
+```rust
+use hebbs_client::RecallStrategy;
+
+let results = client
+    .recall("What are the expansion plans?")
+    .entity("acme-corp")
+    .strategy(RecallStrategy::Similarity)
+    .top_k(5)
+    .send()
+    .await?;
+
+for result in &results.memories {
+    println!(
+        "[{:.3}] {} ({})",
+        result.score,
+        result.memory.content,
+        result.memory.kind,
+    );
+}
+
+println!("Query took {:.1}ms", results.latency_ms);
+```
+
+## Revise and Forget
+
+```rust
+// Revise a memory
+let revised = client
+    .revise(&m1.id)
+    .content("Expanding to European market in Q2 2026")
+    .send()
+    .await?;
+println!("Revised to version {}", revised.revision);
+
+// Forget all memories for an entity (GDPR erasure)
+let result = client
+    .forget("acme-corp")
+    .send()
+    .await?;
+println!("Deleted {} memories", result.deleted_count);
+```
+
+## Error Handling
+
+```rust
+use hebbs_client::error::{HebbsError, HebbsErrorKind};
+
+match client.get("nonexistent-id").await {
+    Ok(memory) => println!("Found: {}", memory.content),
+    Err(HebbsError { kind: HebbsErrorKind::NotFound, .. }) => {
+        println!("Memory not found");
+    }
+    Err(e) => return Err(e.into()),
+}
+```
+
+## Next Steps
+
+- [Client Reference](/rust-sdk/client-reference/) — full API documentation
+- [FFI (C/C++)](/rust-sdk/ffi/) — use HEBBS from C/C++
+- [Cookbooks](/cookbooks/) — production-ready examples

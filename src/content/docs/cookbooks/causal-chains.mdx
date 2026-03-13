@@ -1,0 +1,181 @@
+---
+title: "Causal Chains"
+description: "Build and query causal relationships between memories."
+---
+
+This cookbook demonstrates how to build causal chains between memories using `CausedBy` edges and query them using causal recall.
+
+## Store Memories with Causal Edges
+
+Create a chain of events where each event is linked to its cause:
+
+```python
+import asyncio
+from hebbs import HebbsClient, MemoryKind, Edge, EdgeType
+
+async def build_causal_chain(client, entity):
+    # Event 1: Root cause
+    e1 = await client.remember(
+        content="Database server ran out of disk space at 3:00 AM",
+        entity=entity, kind=MemoryKind.EPISODIC,
+        metadata={"severity": "critical"},
+    )
+
+    # Event 2: Caused by Event 1
+    e2 = await client.remember(
+        content="Write operations started failing with IO errors",
+        entity=entity, kind=MemoryKind.EPISODIC,
+        edges=[Edge(target_id=e1.id, edge_type=EdgeType.CAUSED_BY, weight=1.0)],
+        metadata={"severity": "critical"},
+    )
+
+    # Event 3: Caused by Event 2
+    e3 = await client.remember(
+        content="API endpoints returning 500 errors to customers",
+        entity=entity, kind=MemoryKind.EPISODIC,
+        edges=[Edge(target_id=e2.id, edge_type=EdgeType.CAUSED_BY, weight=1.0)],
+        metadata={"severity": "critical"},
+    )
+
+    # Event 4: Caused by Event 3
+    e4 = await client.remember(
+        content="Customer support tickets spiked by 300%",
+        entity=entity, kind=MemoryKind.EPISODIC,
+        edges=[Edge(target_id=e3.id, edge_type=EdgeType.CAUSED_BY, weight=0.9)],
+        metadata={"severity": "high"},
+    )
+
+    # Resolution: Caused by Event 1
+    e5 = await client.remember(
+        content="Ops team expanded disk, cleared old logs, added monitoring alert",
+        entity=entity, kind=MemoryKind.EPISODIC,
+        edges=[Edge(target_id=e1.id, edge_type=EdgeType.CAUSED_BY, weight=1.0)],
+        metadata={"severity": "info"},
+    )
+
+    # Lesson learned
+    e6 = await client.remember(
+        content="Always set disk usage alerts at 80% threshold, never let it reach 95%",
+        entity=entity, kind=MemoryKind.SEMANTIC,
+        edges=[
+            Edge(target_id=e1.id, edge_type=EdgeType.RELATED_TO, weight=1.0),
+            Edge(target_id=e5.id, edge_type=EdgeType.RELATED_TO, weight=0.8),
+        ],
+    )
+
+    print(f"Built causal chain with {await client.count(entity)} events")
+    return [e1, e2, e3, e4, e5, e6]
+```
+
+## Causal Recall
+
+Query the causal chain to trace what caused a particular outcome:
+
+```python
+async def trace_causes(client, entity, question):
+    results = await client.recall(
+        query=question,
+        entity=entity,
+        strategy="causal",
+        top_k=10,
+    )
+
+    print(f"\nCausal trace: '{question}'")
+    for r in results.memories:
+        severity = r.memory.metadata.get("severity", "—")
+        print(f"  [{r.score:.3f}] ({severity}) {r.memory.content}")
+
+    return results
+```
+
+```python
+# Trace backwards: what caused the support ticket spike?
+await trace_causes(client, entity, "Why did support tickets spike?")
+
+# Trace the root cause
+await trace_causes(client, entity, "What was the root cause of the outage?")
+```
+
+## Building Branching Causal Graphs
+
+Causal chains can branch — one cause can have multiple effects:
+
+```python
+async def build_branching_graph(client, entity):
+    # Common cause
+    root = await client.remember(
+        content="New pricing model announced: 20% increase for enterprise tier",
+        entity=entity, kind=MemoryKind.EPISODIC,
+    )
+
+    # Effect 1: Customer reaction
+    await client.remember(
+        content="Three enterprise customers requested contract renegotiation",
+        entity=entity, kind=MemoryKind.EPISODIC,
+        edges=[Edge(target_id=root.id, edge_type=EdgeType.CAUSED_BY, weight=1.0)],
+    )
+
+    # Effect 2: Competitor reaction
+    await client.remember(
+        content="Competitor launched aggressive win-back campaign targeting our enterprise customers",
+        entity=entity, kind=MemoryKind.EPISODIC,
+        edges=[Edge(target_id=root.id, edge_type=EdgeType.CAUSED_BY, weight=0.8)],
+    )
+
+    # Effect 3: Internal reaction
+    await client.remember(
+        content="Sales team requested updated competitive battlecards",
+        entity=entity, kind=MemoryKind.EPISODIC,
+        edges=[Edge(target_id=root.id, edge_type=EdgeType.CAUSED_BY, weight=0.7)],
+    )
+```
+
+## Combining Causal and Similarity Recall
+
+For comprehensive analysis, combine both strategies:
+
+```python
+async def root_cause_analysis(client, entity, incident):
+    # What's causally connected?
+    causal = await client.recall(
+        query=incident, entity=entity, strategy="causal", top_k=5,
+    )
+
+    # What's semantically similar?
+    similar = await client.recall(
+        query=incident, entity=entity, strategy="similarity", top_k=5,
+    )
+
+    print(f"Root Cause Analysis: '{incident}'")
+
+    print("\n  Causal chain:")
+    for r in causal.memories:
+        print(f"    [{r.score:.3f}] {r.memory.content}")
+
+    print("\n  Related context:")
+    for r in similar.memories:
+        print(f"    [{r.score:.3f}] {r.memory.content}")
+```
+
+## Full Example
+
+```python
+async def main():
+    async with HebbsClient.connect("localhost:50051") as client:
+        entity = "incident-analysis"
+
+        # Build the chain
+        events = await build_causal_chain(client, entity)
+
+        # Trace causes
+        await trace_causes(client, entity, "Why did customers experience errors?")
+        await trace_causes(client, entity, "What was the root cause?")
+
+        # Full analysis
+        await root_cause_analysis(
+            client, entity,
+            "API errors and customer complaints",
+        )
+
+asyncio.run(main())
+```

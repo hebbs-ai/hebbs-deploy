@@ -1,0 +1,103 @@
+---
+title: "REPL"
+description: "Interactive REPL mode with tab completion and dot-commands."
+---
+
+The HEBBS REPL provides an interactive session for exploring and managing memories. It maintains a persistent connection and supports tab completion, history, and session management.
+
+## Starting the REPL
+
+```bash
+hebbs-cli repl
+```
+
+With a custom server address:
+
+```bash
+hebbs-cli repl --address my-hebbs-server:50051
+```
+
+You'll see a prompt like:
+
+```
+HEBBS v0.1.0 — connected to localhost:50051
+Type .help for available commands.
+hebbs>
+```
+
+## Running Commands
+
+All standard CLI commands are available without the `hebbs-cli` prefix:
+
+```
+hebbs> remember --entity demo --content "First memory in the REPL"
+Stored: mem_abc123
+
+hebbs> recall --entity demo --query "what's stored?"
+1. [0.943] First memory in the REPL
+```
+
+## Tab Completion
+
+Press `Tab` to autocomplete:
+
+- **Command names** — `rec<Tab>` expands to `recall` or shows `recall`, `remember`
+- **Flag names** — `--ent<Tab>` expands to `--entity`
+- **Strategy values** — `--strategy sim<Tab>` expands to `similarity`
+- **Entity names** — previously used entity names are remembered for the session
+
+## Dot-Commands
+
+Dot-commands are REPL-specific meta-commands:
+
+| Command | Description |
+|---|---|
+| `.help` | Show all available commands and dot-commands |
+| `.status` | Show connection status and server health |
+| `.clear` | Clear the terminal screen |
+| `.entity <name>` | Set the default entity (avoids repeating `--entity` on every command) |
+| `.format <fmt>` | Switch output format (`human`, `json`, `raw`) |
+| `.history` | Show command history |
+| `.time` | Toggle latency display for each command |
+| `.quit` or `.exit` | Exit the REPL |
+
+## Session Management
+
+### Default Entity
+
+Set a default entity to avoid repeating it on every command:
+
+```
+hebbs> .entity customer-42
+Default entity set to: customer-42
+
+hebbs> remember --content "This goes to customer-42 automatically"
+Stored: mem_def456
+
+hebbs> recall --query "contact preferences"
+1. [0.891] Prefers email over phone
+```
+
+### Command History
+
+Command history persists across REPL sessions in `~/.config/hebbs/history`. Navigate with up/down arrow keys.
+
+### Multi-line Input
+
+For long content, use a backslash to continue on the next line:
+
+```
+hebbs> remember --entity demo --content "This is a very long memory \
+that spans multiple lines for readability"
+```
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `↑` / `↓` | Navigate command history |
+| `Tab` | Autocomplete |
+| `Ctrl+C` | Cancel current input |
+| `Ctrl+D` | Exit the REPL |
+| `Ctrl+L` | Clear screen |
+| `Ctrl+R` | Reverse search history |

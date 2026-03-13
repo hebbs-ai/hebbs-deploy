@@ -1,0 +1,47 @@
+---
+title: "Cookbooks"
+description: "Production-ready tutorials and example applications."
+---
+
+Cookbooks are step-by-step guides that demonstrate how to use HEBBS in real-world scenarios. Each cookbook includes complete, runnable code and explains the design decisions behind the implementation.
+
+## Getting Started
+
+Build foundational skills with HEBBS:
+
+- [Your First Memory Agent](/cookbooks/first-memory-agent/) — connect to HEBBS and build a simple memory-augmented agent from scratch.
+- [Multi-Strategy Recall](/cookbooks/multi-strategy-recall/) — compare all four recall strategies (similarity, temporal, causal, analogical) on the same dataset.
+- [Entity-Scoped Memory](/cookbooks/entity-scoped-memory/) — partition memories by customer, user, or agent and prove isolation.
+
+## Use Cases
+
+Complete applications demonstrating HEBBS in production scenarios:
+
+- [Voice Sales Agent](/cookbooks/voice-sales-agent/) — build an AI sales agent with cross-session memory for discovery calls and objection handling.
+- [Customer Support Agent](/cookbooks/customer-support/) — support agent with ticket history, temporal recall, and GDPR-compliant data erasure.
+- [Research Assistant](/cookbooks/research-assistant/) — cross-domain recall and synthesis for research workflows using analogical recall and reflection.
+
+## Patterns
+
+Reusable patterns for common requirements:
+
+- [GDPR Compliance](/cookbooks/gdpr-compliance/) — implement data erasure with `forget()` and verify complete deletion.
+- [Real-time Subscribe](/cookbooks/realtime-subscribe/) — surface relevant memories in real-time during conversations.
+- [Background Learning](/cookbooks/background-learning/) — use the reflection pipeline to consolidate memories into institutional knowledge.
+- [Causal Chains](/cookbooks/causal-chains/) — build and query causal relationships between memories.
+
+## Infrastructure
+
+Operational guides for running HEBBS:
+
+- [Monitoring Stack](/cookbooks/monitoring-stack/) — set up HEBBS with Prometheus and Grafana using docker-compose.
+
+## Prerequisites
+
+All cookbooks assume:
+
+- A running HEBBS server (see [Deployment](/deployment/overview/))
+- **Python**: The HEBBS Python SDK installed (`pip install hebbs`) with Python 3.10+
+- **TypeScript**: The HEBBS TypeScript SDK installed (`npm install @hebbs/sdk`) with Node.js 18+
+
+Most examples show both Python and TypeScript. Pick whichever fits your stack.

@@ -1,0 +1,105 @@
+---
+title: "Architecture Guide"
+description: "Crate map and code conventions for HEBBS contributors."
+---
+
+This guide helps contributors understand the HEBBS codebase structure, where to add new code, and the conventions that govern the project.
+
+## Crate Map
+
+HEBBS is organized as a Cargo workspace with 12 crates. Each crate has a focused responsibility:
+
+| Crate | Purpose | Key Types |
+|---|---|---|
+| `hebbs-types` | Shared domain types and protobuf definitions | `Memory`, `Edge`, `RecallStrategy`, `MemoryKind` |
+| `hebbs-storage` | RocksDB storage layer, column families, WriteBatch | `StorageEngine`, `WriteBatch`, `ColumnFamily` |
+| `hebbs-embed` | ONNX Runtime embedding engine | `EmbedEngine`, `EmbedBatch` |
+| `hebbs-index` | HNSW, temporal B-tree, graph adjacency indexes | `HnswIndex`, `TemporalIndex`, `GraphIndex` |
+| `hebbs-core` | Operation dispatch, entity isolation, orchestration | `Engine`, `EngineConfig` |
+| `hebbs-reflect` | Reflection pipeline (cluster, propose, validate, consolidate) | `ReflectPipeline`, `LlmProvider` |
+| `hebbs-server` | gRPC server built on tonic | `HebbsServer`, `ServiceImpl` |
+| `hebbs-client` | Async Rust client SDK | `HebbsClient`, `ClientBuilder` |
+| `hebbs-ffi` | C-compatible FFI bindings | `hebbs_connect`, `hebbs_remember`, etc. |
+| `hebbs-cli` | Command-line interface and REPL | `Cli`, `ReplSession` |
+| `hebbs-bench` | Benchmarking tool | `BenchRunner`, `BenchConfig` |
+| `hebbs-test` | Test utilities and fixtures | `TestServer`, `TestClient`, `fixtures` |
+
+## Dependency Graph
+
+```
+hebbs-server
+  └── hebbs-core
+        ├── hebbs-storage
+        ├── hebbs-index
+        │     └── hebbs-storage
+        ├── hebbs-embed
+        └── hebbs-reflect
+              └── hebbs-embed
+
+hebbs-client
+  └── hebbs-types
+
+hebbs-cli
+  └── hebbs-client
+
+hebbs-ffi
+  └── hebbs-client
+
+All crates depend on hebbs-types.
+```
+
+## Code Conventions
+
+### Error Handling
+
+- Library crates (`hebbs-core`, `hebbs-storage`, etc.) use `thiserror` for typed errors.
+- Binary crates (`hebbs-server`, `hebbs-cli`) use `anyhow` for error propagation.
+- No `unwrap()` or `expect()` on paths reachable by external input.
+
+### Async
+
+- All I/O-bound operations are `async`.
+- Use `tokio` as the async runtime.
+- CPU-bound work (embedding, HNSW operations) runs on `spawn_blocking` to avoid blocking the event loop.
+
+### Public APIs
+
+- Accept `impl AsRef<str>` over `String` where practical.
+- Return references over owned values where lifetime permits.
+- Use the builder pattern for complex request construction.
+
+### Documentation
+
+- All public types and functions have rustdoc comments.
+- Include complexity annotations: `/// O(log n) lookup via HNSW graph traversal`.
+- Include panic documentation: `/// # Panics` section if the function can panic (should be rare).
+
+### Testing
+
+- Unit tests live in `#[cfg(test)] mod tests` next to the code they test.
+- Integration tests live in `tests/`.
+- Property-based tests use `proptest` for invariant verification.
+- Every hot-path function has a corresponding Criterion benchmark in `benches/`.
+
+## Where to Add New Code
+
+| Change Type | Location |
+|---|---|
+| New storage feature | `hebbs-storage` |
+| New index type | `hebbs-index` |
+| New recall strategy | `hebbs-index` + `hebbs-core` (dispatch) |
+| New gRPC endpoint | `proto/` (protobuf) + `hebbs-server` |
+| New client method | `hebbs-client` + `hebbs-types` |
+| New CLI command | `hebbs-cli` |
+| New reflection stage | `hebbs-reflect` |
+| New benchmark | `benches/` + `hebbs-bench` |
+| New domain type | `hebbs-types` |
+
+## Naming Conventions
+
+- Crate names: `hebbs-{module}` (kebab-case)
+- Module names: `snake_case`
+- Types: `PascalCase`
+- Functions and methods: `snake_case`
+- Constants: `SCREAMING_SNAKE_CASE`
+- Feature flags: `kebab-case`

@@ -1,0 +1,37 @@
+---
+title: reflect
+description: Manually trigger the reflection pipeline to consolidate memories into insights.
+---
+
+## Overview
+
+The `reflect` operation manually triggers the reflection pipeline. The pipeline clusters similar episodes, synthesizes insights, and writes them back as Insight-kind memories with lineage edges to source episodes. Use `reflect` when you want immediate consolidation instead of waiting for policy-based triggers.
+
+## API Access
+
+| Protocol | Service/Method | Endpoint |
+|----------|----------------|----------|
+| **gRPC** | `ReflectService.Reflect` | — |
+| **REST** | — | Not yet implemented |
+
+## Request Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `entity_id` | string | No | Optional scope. If provided, only that entity's episodes are processed. If omitted, global scope (all entities). |
+| `tenant_id` | string | No | Tenant scope for data isolation. Normally derived from the API key by the server. Override only when running without authentication or for cross-tenant administrative operations. Default: derived from API key or `"default"`. |
+
+> **Note:** For REST, `tenant_id` is derived from the `Authorization` header — not passed in the request body. For gRPC, it can be set explicitly in the request message but is overridden by the API key's tenant when auth is enabled.
+
+## Response
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `insights_created` | int | Number of new Insight memories written. |
+| `clusters_found` | int | Number of clusters identified. |
+| `clusters_processed` | int | Number of clusters that yielded insights. |
+| `memories_processed` | int | Number of episodes considered. |
+
+## Pipeline Behavior
+
+Reflection is bounded: each run processes at most `max_memories_per_run` episodes and forms at most `max_clusters` clusters. The pipeline runs in the background; the API returns once the run is queued or completed (depending on implementation). LLM calls occur only in the reflect pipeline, never on the hot path.

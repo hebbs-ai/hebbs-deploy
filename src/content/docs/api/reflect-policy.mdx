@@ -1,0 +1,32 @@
+---
+title: reflect_policy
+description: Configure automatic background reflection triggers.
+---
+
+## Overview
+
+The `reflect_policy` operation configures when and how the reflection pipeline runs automatically. Reflection consolidates raw episodes into insights; the policy determines triggers (e.g., memory count threshold, time interval) and scope (entity, global).
+
+## API Access
+
+| Protocol | Service | REST Endpoint |
+|----------|---------|---------------|
+| **gRPC** | `ReflectService` (policy config) | — |
+| **REST** | — | Not yet implemented |
+
+## Policy Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `trigger_type` | enum | `memory_count`, `interval`, `manual_only`. |
+| `memory_threshold` | int | Run reflection when entity has N new episodes since last run. |
+| `interval_seconds` | int | Run reflection every N seconds (bounded, e.g., max 24h). |
+| `entity_scope` | string or null | Entity to scope; null = global. |
+| `max_memories_per_run` | int | Cap memories processed per run (bounded). |
+| `max_clusters` | int | Cap clusters formed per run. |
+
+## When Reflection Triggers
+
+- **memory_count**: After `remember` or batch ingest, if entity's new-episode count >= `memory_threshold`.
+- **interval**: Background scheduler fires every `interval_seconds`.
+- **manual_only**: No automatic triggers; reflection runs only via explicit `reflect` call.

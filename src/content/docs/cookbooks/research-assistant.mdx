@@ -1,0 +1,174 @@
+---
+title: "Research Assistant"
+description: "Cross-domain recall and synthesis for research workflows."
+---
+
+This cookbook builds a research assistant that uses HEBBS to store research notes from multiple domains and leverages analogical recall and reflection for cross-domain synthesis.
+
+## Store Research Notes
+
+Ingest notes from different research domains:
+
+```python
+import asyncio
+from hebbs import HebbsClient, MemoryKind, Edge, EdgeType
+
+async def ingest_research(client, entity):
+    # Neuroscience notes
+    await client.remember(
+        content="Hippocampal replay during sleep consolidates episodic memories into neocortical schemas",
+        entity=entity, kind=MemoryKind.SEMANTIC,
+        metadata={"domain": "neuroscience", "paper": "Diekelmann & Born 2010"},
+    )
+    await client.remember(
+        content="Memory consolidation is selective — emotionally significant memories are preferentially replayed",
+        entity=entity, kind=MemoryKind.SEMANTIC,
+        metadata={"domain": "neuroscience", "paper": "Payne & Kensinger 2010"},
+    )
+
+    # Computer science notes
+    await client.remember(
+        content="Experience replay in reinforcement learning stores and re-samples past transitions for stable training",
+        entity=entity, kind=MemoryKind.SEMANTIC,
+        metadata={"domain": "computer-science", "paper": "Mnih et al. 2015"},
+    )
+    await client.remember(
+        content="Prioritized experience replay samples transitions with high TD-error more frequently",
+        entity=entity, kind=MemoryKind.SEMANTIC,
+        metadata={"domain": "computer-science", "paper": "Schaul et al. 2016"},
+    )
+
+    # Organizational learning notes
+    await client.remember(
+        content="After-action reviews consolidate team experiences into organizational processes",
+        entity=entity, kind=MemoryKind.SEMANTIC,
+        metadata={"domain": "org-learning", "paper": "Darling & Parry 2001"},
+    )
+    await client.remember(
+        content="Institutional memory loss occurs when experienced employees leave without knowledge transfer",
+        entity=entity, kind=MemoryKind.SEMANTIC,
+        metadata={"domain": "org-learning"},
+    )
+
+    print(f"Ingested {await client.count(entity)} research notes")
+```
+
+## Analogical Recall Across Domains
+
+Use analogical recall to find structural similarities across different fields:
+
+```python
+async def cross_domain_query(client, entity, query):
+    results = await client.recall(
+        query=query,
+        entity=entity,
+        strategy="analogical",
+        top_k=5,
+    )
+
+    print(f"\nAnalogical recall: '{query}'")
+    domains_found = set()
+    for r in results.memories:
+        domain = r.memory.metadata.get("domain", "unknown")
+        domains_found.add(domain)
+        print(f"  [{domain}] [{r.score:.3f}] {r.memory.content[:80]}...")
+
+    print(f"  Domains covered: {', '.join(domains_found)}")
+    return results
+```
+
+```python
+# This query should surface analogies across neuroscience, CS, and org-learning
+await cross_domain_query(
+    client, entity,
+    "How do systems consolidate experiences into reusable knowledge?",
+)
+```
+
+## Reflection for Synthesis
+
+Trigger reflection to generate cross-domain insights:
+
+```python
+async def synthesize(client, entity):
+    await client.set_policy(
+        entity,
+        reflect_enabled=True,
+        reflect_min_memories=4,
+    )
+
+    result = await client.reflect(entity)
+    print(f"Reflection: {result.insights_created} insights generated")
+
+    insights = await client.insights(entity, top_k=5)
+    for insight in insights:
+        print(f"\n  Synthesis: {insight.content}")
+        source_count = len(insight.edges)
+        print(f"  Sources: {source_count} memories")
+```
+
+## Research Workflow
+
+```python
+async def research_session(client, entity):
+    # Add a new finding
+    new_note = await client.remember(
+        content="Hebbian learning strengthens synaptic connections between co-activated neurons",
+        entity=entity, kind=MemoryKind.SEMANTIC,
+        metadata={"domain": "neuroscience"},
+    )
+
+    # Immediately check for analogies
+    analogies = await client.recall(
+        query=new_note.content,
+        entity=entity,
+        strategy="analogical",
+        top_k=3,
+    )
+
+    if analogies.memories:
+        print("Cross-domain connections found for new note:")
+        for r in analogies.memories:
+            if r.memory.id != new_note.id:
+                domain = r.memory.metadata.get("domain", "unknown")
+                print(f"  [{domain}] {r.memory.content[:60]}...")
+
+                # Store the connection as an edge
+                await client.revise(
+                    new_note.id,
+                    edges=[Edge(
+                        target_id=r.memory.id,
+                        edge_type=EdgeType.RELATED_TO,
+                        weight=r.score,
+                    )],
+                )
+```
+
+## Full Example
+
+```python
+async def main():
+    async with HebbsClient.connect("localhost:50051") as client:
+        entity = "research-memory-systems"
+
+        # Ingest multi-domain notes
+        await ingest_research(client, entity)
+
+        # Cross-domain queries
+        await cross_domain_query(
+            client, entity,
+            "How do systems consolidate experiences into reusable knowledge?",
+        )
+        await cross_domain_query(
+            client, entity,
+            "What happens when replay or review processes fail?",
+        )
+
+        # Generate synthesis
+        await synthesize(client, entity)
+
+        # Continue researching with live connections
+        await research_session(client, entity)
+
+asyncio.run(main())
+```

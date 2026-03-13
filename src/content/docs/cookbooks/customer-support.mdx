@@ -1,0 +1,161 @@
+---
+title: "Customer Support Agent"
+description: "Support agent with ticket history and GDPR-compliant erasure."
+---
+
+This cookbook builds a customer support agent that stores ticket context in HEBBS, uses temporal recall to surface conversation history, and supports GDPR-compliant data erasure via `forget()`.
+
+## Storing Ticket Context
+
+Each support interaction is stored as an episodic memory with ticket metadata:
+
+```python
+import asyncio
+from hebbs import HebbsClient, MemoryKind
+
+async def store_ticket_interaction(client, customer_id, ticket_id, content):
+    memory = await client.remember(
+        content=content,
+        entity=customer_id,
+        kind=MemoryKind.EPISODIC,
+        metadata={
+            "ticket_id": ticket_id,
+            "channel": "chat",
+        },
+    )
+    return memory
+
+async def main():
+    async with HebbsClient.connect("localhost:50051") as client:
+        customer = "customer-sarah"
+
+        # Store a series of support interactions
+        await store_ticket_interaction(
+            client, customer, "TKT-001",
+            "Customer reported login issues after password reset",
+        )
+        await store_ticket_interaction(
+            client, customer, "TKT-001",
+            "Resolved by clearing browser cache and resetting session tokens",
+        )
+        await store_ticket_interaction(
+            client, customer, "TKT-002",
+            "Customer asked about upgrading from Basic to Pro plan",
+        )
+        await store_ticket_interaction(
+            client, customer, "TKT-002",
+            "Provided comparison table. Customer interested but wants to wait for Q2 budget",
+        )
+        await store_ticket_interaction(
+            client, customer, "TKT-003",
+            "Billing discrepancy: charged twice for March subscription",
+        )
+```
+
+## Temporal Recall for History
+
+When a customer contacts support, retrieve their recent interaction history:
+
+```python
+async def get_customer_history(client, customer_id):
+    results = await client.recall(
+        query="Recent support interactions and issues",
+        entity=customer_id,
+        strategy="temporal",
+        top_k=10,
+    )
+
+    print(f"Customer history ({len(results.memories)} interactions):")
+    for r in results.memories:
+        ticket = r.memory.metadata.get("ticket_id", "unknown")
+        print(f"  [{r.memory.created_at}] ({ticket}) {r.memory.content}")
+
+    return results
+```
+
+## Context-Aware Responses
+
+Combine temporal and similarity recall for comprehensive context:
+
+```python
+async def prepare_agent_context(client, customer_id, current_issue):
+    # What has happened recently?
+    history = await client.recall(
+        query="Recent interactions",
+        entity=customer_id,
+        strategy="temporal",
+        top_k=5,
+    )
+
+    # What's relevant to the current issue?
+    relevant = await client.recall(
+        query=current_issue,
+        entity=customer_id,
+        strategy="similarity",
+        top_k=5,
+        threshold=0.6,
+    )
+
+    return {
+        "history": [r.memory.content for r in history.memories],
+        "relevant": [r.memory.content for r in relevant.memories],
+    }
+```
+
+## GDPR-Compliant Erasure
+
+When a customer exercises their right to data erasure:
+
+```python
+async def handle_data_erasure_request(client, customer_id):
+    # Count memories before deletion
+    count_before = await client.count(customer_id)
+    print(f"Memories before erasure: {count_before}")
+
+    # Forget all memories for this customer
+    result = await client.forget(customer_id)
+    print(f"Deleted {result.deleted_count} memories")
+
+    # Verify complete deletion
+    count_after = await client.count(customer_id)
+    assert count_after == 0, "Erasure incomplete!"
+
+    # Verify no results returned for any query
+    verification = await client.recall(
+        query="anything about this customer",
+        entity=customer_id,
+        strategy="similarity",
+        top_k=100,
+    )
+    assert len(verification.memories) == 0, "Memories still retrievable!"
+
+    print(f"Erasure verified: {count_before} → {count_after} memories")
+    return {
+        "customer_id": customer_id,
+        "memories_deleted": result.deleted_count,
+        "verified": True,
+    }
+```
+
+## Full Example
+
+```python
+async def main():
+    async with HebbsClient.connect("localhost:50051") as client:
+        customer = "customer-sarah"
+
+        # Store interactions
+        # ... (as above)
+
+        # New support request comes in
+        context = await prepare_agent_context(
+            client, customer, "I'm having billing issues again"
+        )
+        print("Agent context:", context)
+
+        # Later: customer requests data deletion
+        audit = await handle_data_erasure_request(client, customer)
+        print("Erasure audit:", audit)
+
+asyncio.run(main())
+```

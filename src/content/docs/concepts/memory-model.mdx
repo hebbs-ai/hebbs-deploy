@@ -1,0 +1,52 @@
+---
+title: Memory Model
+description: "What a memory is in HEBBS: content, importance, context, entities, edges, and timestamps."
+---
+
+## Memory Fields
+
+A memory in HEBBS is the fundamental unit of stored experience. Each memory has a fixed set of fields that together capture what happened, how important it is, and how it relates to other memories.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | ULID | Globally unique identifier. ULIDs are time-ordered and collision-resistant. |
+| `content` | string | The primary payload: text, structured data, or a reference. This is what gets embedded for similarity search. |
+| `importance` | f32 (0.0–1.0) | How salient this memory is. Higher values are prioritized during recall and decay more slowly. |
+| `context` | key-value | Arbitrary metadata (e.g., `source`, `channel`, `session_id`). Used for filtering and debugging. |
+| `entity_id` | string | The scope boundary. All recall is scoped by entity unless explicitly cross-entity. |
+| `edges` | typed relationships | Links to other memories: causal, revision, insight provenance. See Edges below. |
+| `created_at` | timestamp | When the memory was first stored. |
+| `updated_at` | timestamp | When the memory was last modified (e.g., via `revise`). |
+| `kind` | enum | One of Episode, Insight, or Revision. Determines how the memory is treated in the pipeline. |
+
+## Memory Kinds
+
+HEBBS distinguishes three kinds of memories:
+
+- **Episode**: Raw, first-order experience. A conversation turn, a sensor reading, a user action. Episodes are the primary input to the system.
+- **Insight**: Consolidated knowledge derived from episodes. Produced by the reflection pipeline. Insights have lineage back to source episodes.
+- **Revision**: A replacement for a previous memory. When `revise` is called, the old memory is superseded by a Revision-kind memory; lineage tracks the predecessor.
+
+The kind affects how memories participate in reflection (only Episodes are clustered for insight generation) and how they appear in lineage graphs.
+
+## Edges
+
+Edges are typed, directed relationships between memories. They enable causal reasoning, revision tracking, and insight provenance. Common edge types:
+
+- **CausedBy**: This memory was caused by another (e.g., "User asked X" caused "Agent responded Y").
+- **RelatedTo**: Semantic or topical association without strict causality.
+- **FollowedBy**: Temporal sequence (A happened before B).
+- **RevisedFrom**: This memory replaces another; the predecessor is superseded.
+- **InsightFrom**: This insight was derived from the linked episode(s).
+
+Edges are stored as part of the memory record and indexed for graph traversal during causal recall.
+
+## Lifecycle
+
+A memory moves through a simple lifecycle:
+
+1. **Create**: `remember` stores a new Episode (or Insight/Revision if explicitly created that way). The memory is written to the WAL, indexed for similarity and time, and becomes immediately queryable.
+2. **Recall**: The memory may be returned by `recall` (similarity, temporal, causal, or analogical) or pushed by `subscribe`. Each recall can trigger Hebbian reinforcement (importance boost).
+3. **Revise** (optional): `revise` creates a Revision-kind memory that supersedes the original. The old memory remains for lineage but is no longer returned by default recall.
+4. **Decay**: Over time, importance decays according to the configured half-life. Memories below the auto-forget threshold may be pruned.
+5. **Forget** (optional): `forget` explicitly removes a memory. Used for GDPR, corrections, or manual cleanup.

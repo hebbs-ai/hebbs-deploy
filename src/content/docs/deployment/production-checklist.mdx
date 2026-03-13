@@ -1,0 +1,129 @@
+---
+title: "Production Checklist"
+description: "Checklist for running HEBBS in production."
+---
+
+Use this checklist before going live with HEBBS in a production environment. Each item addresses security, reliability, or operational readiness.
+
+## Security
+
+- [ ] **Enable TLS** — configure TLS certificates for the gRPC endpoint. Never run plaintext gRPC in production.
+
+```toml
+[server.tls]
+cert_path = "/etc/hebbs/tls/tls.crt"
+key_path = "/etc/hebbs/tls/tls.key"
+```
+
+- [ ] **Enable authentication** — configure token-based authentication to restrict access.
+
+```toml
+[server.auth]
+enabled = true
+tokens = ["${HEBBS_AUTH_TOKEN}"]
+```
+
+- [ ] **Restrict network access** — HEBBS should only be reachable from trusted networks. Use firewalls, security groups, or Kubernetes NetworkPolicies.
+
+- [ ] **Rotate credentials** — establish a rotation schedule for TLS certificates and auth tokens.
+
+- [ ] **Audit logging** — enable audit-level logging for compliance-sensitive deployments.
+
+## Resource Allocation
+
+- [ ] **Set CPU and memory limits** — prevent resource contention with other workloads.
+
+| Scale | CPU Request | Memory Request | CPU Limit | Memory Limit |
+|---|---|---|---|---|
+| Small (< 100K) | 2 | 2 Gi | 4 | 4 Gi |
+| Medium (< 1M) | 4 | 8 Gi | 8 | 16 Gi |
+| Large (< 10M) | 8 | 32 Gi | 16 | 64 Gi |
+
+- [ ] **Size storage appropriately** — estimate ~1 KB per memory for storage planning. Include headroom for indexes and compaction.
+
+- [ ] **Configure RocksDB tuning** — adjust block cache size and write buffer size based on available memory.
+
+```toml
+[storage.rocksdb]
+block_cache_size = "2GB"
+write_buffer_size = "64MB"
+max_write_buffer_number = 3
+```
+
+## Reliability
+
+- [ ] **Persistent storage** — always use persistent volumes. Never run HEBBS with ephemeral storage in production.
+
+- [ ] **Health checks** — configure liveness and readiness probes.
+
+```yaml
+livenessProbe:
+  grpc:
+    port: 50051
+  initialDelaySeconds: 10
+  periodSeconds: 30
+readinessProbe:
+  grpc:
+    port: 50051
+  initialDelaySeconds: 5
+  periodSeconds: 10
+```
+
+- [ ] **Backup strategy** — establish regular backups of the data directory. HEBBS data is crash-consistent, so filesystem-level snapshots (EBS snapshots, ZFS snapshots) are sufficient.
+
+- [ ] **Test restore** — verify that backups can be restored successfully. A backup that has never been tested is not a backup.
+
+- [ ] **Graceful shutdown** — set `terminationGracePeriodSeconds` high enough for in-flight operations to complete (recommended: 30s).
+
+## Monitoring
+
+- [ ] **Prometheus scraping** — configure Prometheus to scrape the HEBBS metrics endpoint. See [Monitoring](/deployment/monitoring/).
+
+- [ ] **Grafana dashboard** — import the HEBBS Grafana dashboard for operational visibility.
+
+- [ ] **Alert rules** — configure alerts for high latency, error rate spikes, storage growth, and server downtime.
+
+- [ ] **Log aggregation** — ship structured JSON logs to your log aggregation system.
+
+## Operations
+
+- [ ] **Rate limiting** — configure rate limits to prevent a single client from overwhelming the server.
+
+```toml
+[server.rate_limit]
+enabled = true
+requests_per_second = 1000
+burst = 100
+```
+
+- [ ] **Upgrade procedure** — document and test the upgrade process. HEBBS supports rolling upgrades with automatic data migration.
+
+- [ ] **Rollback plan** — keep the previous version's image available and know how to roll back quickly.
+
+- [ ] **Runbook** — create an operational runbook covering common scenarios: high latency, storage full, connection errors, reflection failures.
+
+## Reflection Pipeline
+
+- [ ] **Configure LLM provider** — set up the LLM provider for the reflection pipeline.
+
+```toml
+[reflect]
+enabled = true
+provider = "openai"
+model = "gpt-4o-mini"
+api_key = "${OPENAI_API_KEY}"
+```
+
+- [ ] **Set reflection policies** — configure per-entity reflection policies appropriate for your workload.
+
+- [ ] **Monitor reflection costs** — track LLM API usage and costs via the metrics endpoint.
+
+## Pre-Launch Verification
+
+- [ ] Run `hebbs-cli status` to confirm the server is healthy
+- [ ] Store and recall a test memory to verify end-to-end operation
+- [ ] Trigger a reflection cycle and verify insight generation
+- [ ] Confirm Prometheus is scraping metrics
+- [ ] Confirm Grafana dashboards are populated
+- [ ] Verify alerts fire correctly (test with a synthetic alert)
+- [ ] Load test at expected peak traffic (use `hebbs-bench`)

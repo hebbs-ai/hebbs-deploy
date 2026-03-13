@@ -1,0 +1,56 @@
+---
+title: "Python SDK Overview"
+description: "Async Python client for HEBBS with a clean, Pythonic API."
+---
+
+The `hebbs` Python package provides an async gRPC client for the HEBBS cognitive memory engine. It wraps the underlying protobuf transport in a clean, Pythonic interface — no protobuf types appear in the public API.
+
+## Key Features
+
+- **Fully async** — built on `grpcio` with native `asyncio` support. Every method is a coroutine.
+- **Context manager support** — use `async with HebbsClient.connect(...)` for automatic connection lifecycle management.
+- **Pythonic data types** — all request and response objects are Python dataclasses. No `.SerializeToString()` or `.FromString()` leaks into your code.
+- **Streaming** — the `subscribe()` method returns an async iterator for real-time memory surfacing.
+- **Typed** — full `py.typed` support with type stubs for IDE autocompletion and mypy checking.
+
+## Quick Example
+
+```python
+import asyncio
+from hebbs import HebbsClient
+
+async def main():
+    async with HebbsClient.connect("localhost:50051") as client:
+        await client.remember(
+            content="Customer prefers email over phone",
+            entity="customer-42",
+        )
+
+        results = await client.recall(
+            query="How does the customer prefer to be contacted?",
+            entity="customer-42",
+        )
+
+        for memory in results.memories:
+            print(f"{memory.content} (score: {memory.score:.3f})")
+
+asyncio.run(main())
+```
+
+## Package Structure
+
+| Module | Purpose |
+|---|---|
+| `hebbs.client` | `HebbsClient` — the main entry point |
+| `hebbs.types` | All data types (`Memory`, `RecallResult`, `Edge`, etc.) |
+| `hebbs.errors` | Exception hierarchy |
+| `hebbs.subscribe` | `Subscription` object for real-time streaming |
+
+## Next Steps
+
+- [Installation](/python/installation/) — install the package with pip
+- [Quick Start](/python/quickstart/) — connect and run your first operations
+- [Client Reference](/python/client-reference/) — complete method documentation
+- [Types Reference](/python/types-reference/) — all data types
+- [Error Handling](/python/error-handling/) — exception hierarchy and retry patterns
+- [Subscribe Streaming](/python/subscribe-streaming/) — real-time memory surfacing

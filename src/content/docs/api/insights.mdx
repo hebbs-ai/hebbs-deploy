@@ -1,0 +1,65 @@
+---
+title: insights
+description: Query consolidated knowledge produced by the reflection pipeline.
+---
+
+## Overview
+
+The `insights` operation queries consolidated knowledge produced by the reflection pipeline. Insights are high-level summaries or patterns derived from raw episodes. Each insight has lineage edges back to source memories, enabling provenance and "why did the system think this?" queries.
+
+## API Access
+
+| Protocol | Service/Method | Endpoint |
+|----------|----------------|----------|
+| **gRPC** | `ReflectService.GetInsights` | — |
+| **REST** | GET | `/v1/insights` |
+
+## Request Fields
+
+Passed as query parameters for REST, or message fields for gRPC.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `entity_id` | string | No | Scope to this entity's insights. Omit for global. |
+| `min_confidence` | float | No | Minimum confidence threshold for returned insights. |
+| `max_results` | int | No | Maximum number of insights to return (default 20). |
+| `tenant_id` | string | No | Tenant scope for data isolation. Normally derived from the API key by the server. Override only when running without authentication or for cross-tenant administrative operations. Default: derived from API key or `"default"`. |
+
+> **Note:** For REST, `tenant_id` is derived from the `Authorization` header — not passed in the request body. For gRPC, it can be set explicitly in the request message but is overridden by the API key's tenant when auth is enabled.
+
+## Response
+
+Returns an array of Insight memories. Each insight includes:
+
+- `id`, `content`, `importance`, `context`, `entity_id`
+- `edges`: `InsightFrom` edges linking to source episode IDs
+- `created_at`, `updated_at`, `kind: Insight`
+
+## Examples
+
+### curl (REST)
+
+```bash
+curl -s "http://localhost:6381/v1/insights?entity_id=user_42&max_results=5" \
+  -H "Authorization: Bearer $HEBBS_API_KEY" | jq .
+```
+
+### All insights (no filter)
+
+```bash
+curl -s http://localhost:6381/v1/insights \
+  -H "Authorization: Bearer $HEBBS_API_KEY" | jq .
+```
+
+### grpcurl (gRPC)
+
+```bash
+grpcurl -plaintext \
+  -H "authorization: Bearer $HEBBS_API_KEY" \
+  -d '{"entity_id": "user_42", "max_results": 5}' \
+  localhost:6380 hebbs.ReflectService/GetInsights
+```
+
+## Lineage
+
+Insights track provenance via `InsightFrom` edges. Use these to trace back to the episodes that contributed to the insight, supporting explainability and audit.

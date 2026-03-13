@@ -1,0 +1,92 @@
+---
+title: "Python SDK Quick Start"
+description: "Connect to HEBBS and perform your first operations in Python."
+---
+
+This guide walks you through connecting to a HEBBS server, storing memories, and recalling them — all in under 20 lines of async Python.
+
+## Prerequisites
+
+- HEBBS Python SDK installed (`pip install hebbs`)
+- A running HEBBS server (default: `localhost:6380`)
+- Your API key exported: `export HEBBS_API_KEY="hb_..."`
+
+## Full Example
+
+```python
+import asyncio
+import os
+from hebbs import HebbsClient, MemoryKind
+
+async def main():
+    # Connect using a context manager for automatic cleanup
+    async with HebbsClient.connect(
+        "localhost:6380",
+        api_key=os.environ.get("HEBBS_API_KEY"),
+    ) as client:
+
+        # Check server health
+        health = await client.health()
+        print(f"Server status: {health.status}")
+
+        # Store some memories
+        m1 = await client.remember(
+            content="Customer mentioned they're expanding to Europe next quarter",
+            entity="acme-corp",
+            kind=MemoryKind.EPISODIC,
+        )
+        print(f"Stored memory: {m1.id}")
+
+        m2 = await client.remember(
+            content="GDPR compliance is their top concern for the expansion",
+            entity="acme-corp",
+            kind=MemoryKind.EPISODIC,
+        )
+        print(f"Stored memory: {m2.id}")
+
+        m3 = await client.remember(
+            content="European expansion requires GDPR compliance as a prerequisite",
+            entity="acme-corp",
+            kind=MemoryKind.SEMANTIC,
+        )
+        print(f"Stored memory: {m3.id}")
+
+        # Recall by similarity
+        results = await client.recall(
+            query="What are the customer's plans for Europe?",
+            entity="acme-corp",
+            strategy="similarity",
+            top_k=5,
+        )
+
+        print(f"\nRecall returned {len(results.memories)} memories:")
+        for memory in results.memories:
+            print(f"  [{memory.score:.3f}] {memory.content}")
+
+        # Recall by temporal proximity
+        temporal = await client.recall(
+            query="What happened recently with this customer?",
+            entity="acme-corp",
+            strategy="temporal",
+            top_k=5,
+        )
+
+        print(f"\nTemporal recall returned {len(temporal.memories)} memories:")
+        for memory in temporal.memories:
+            print(f"  [{memory.created_at}] {memory.content}")
+
+asyncio.run(main())
+```
+
+## What Just Happened
+
+1. **Connect** — `HebbsClient.connect()` establishes a gRPC channel. The context manager ensures the connection is closed when the block exits.
+2. **Remember** — each `remember()` call stores a memory in the engine. HEBBS automatically embeds the content, indexes it across vector, temporal, and graph indexes, and returns the stored memory with its assigned ID.
+3. **Recall** — `recall()` queries the engine using one of four strategies: `similarity`, `temporal`, `causal`, or `analogical`. Results include relevance scores and metadata.
+
+## Next Steps
+
+- [Client Reference](/python/client-reference/) — explore all available methods
+- [Types Reference](/python/types-reference/) — understand the data model
+- [Error Handling](/python/error-handling/) — handle failures gracefully
+- [Multi-Strategy Recall](/cookbooks/multi-strategy-recall/) — compare all four recall strategies

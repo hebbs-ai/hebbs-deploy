@@ -1,0 +1,105 @@
+---
+title: "Reflection Pipeline"
+description: "Four-stage background pipeline: cluster, propose, validate, consolidate."
+---
+
+The reflection pipeline is HEBBS's mechanism for generating higher-order knowledge from raw memories. It runs in the background — never on the hot path — and produces insight memories that capture patterns, trends, and generalizations across an entity's memory store.
+
+## Pipeline Stages
+
+Reflection proceeds through four sequential stages:
+
+### Stage 1: Cluster
+
+The pipeline groups related memories into thematic clusters using a combination of embedding similarity and edge relationships.
+
+- Memories are projected into embedding space and clustered via agglomerative clustering.
+- Minimum cluster size is configurable (default: 3 memories).
+- Each cluster represents a potential insight topic.
+
+### Stage 2: Propose
+
+For each cluster, the pipeline generates an insight proposal by sending the cluster's memories to an LLM with a structured prompt.
+
+- The prompt includes all memories in the cluster, their timestamps, and edge relationships.
+- The LLM produces a candidate insight: a concise synthesis of the pattern or knowledge represented by the cluster.
+- Multiple candidates may be generated per cluster for diversity.
+
+### Stage 3: Validate
+
+Proposed insights are validated before storage:
+
+- **Novelty check** — is this insight materially different from existing insights? Duplicate or near-duplicate insights are discarded.
+- **Grounding check** — does every claim in the insight trace back to source memories? Ungrounded claims are flagged.
+- **Confidence scoring** — each insight receives a confidence score based on cluster size, memory recency, and source diversity.
+
+### Stage 4: Consolidate
+
+Validated insights are stored as `Insight`-kind memories with full lineage tracking:
+
+- Each insight memory has `InsightFrom` edges pointing to every source memory that contributed to it.
+- The insight's metadata includes the confidence score, cluster ID, and generation timestamp.
+- Existing insights that are superseded by new ones are linked via `RevisedFrom` edges.
+
+## LLM Provider Trait
+
+The reflection pipeline uses an abstract LLM provider trait, allowing different backends:
+
+```rust
+#[async_trait]
+pub trait LlmProvider: Send + Sync {
+    async fn generate(&self, prompt: &str) -> Result<String>;
+    fn model_name(&self) -> &str;
+}
+```
+
+Supported providers:
+
+| Provider | Configuration |
+|---|---|
+| OpenAI | `provider = "openai"`, requires `OPENAI_API_KEY` |
+| Anthropic | `provider = "anthropic"`, requires `ANTHROPIC_API_KEY` |
+| Local (Ollama) | `provider = "ollama"`, requires local Ollama instance |
+
+```toml
+[reflect]
+enabled = true
+provider = "openai"
+model = "gpt-4o-mini"
+api_key = "${OPENAI_API_KEY}"
+min_memories = 5
+interval_seconds = 3600
+max_insights_per_cycle = 10
+```
+
+## Lineage Tracking
+
+Every insight maintains a complete lineage graph:
+
+```
+Insight: "Customer consistently prioritizes compliance over cost"
+  ├── InsightFrom → "GDPR is their top concern" (episodic)
+  ├── InsightFrom → "Rejected cheaper non-compliant option" (episodic)
+  ├── InsightFrom → "Asked about SOC2 certification" (episodic)
+  └── InsightFrom → "Compliance team has veto power" (semantic)
+```
+
+This lineage enables:
+
+- **Explainability** — trace any insight back to its source memories.
+- **Invalidation** — if a source memory is forgotten or revised, dependent insights can be flagged for re-evaluation.
+- **Confidence evolution** — as new supporting memories arrive, insight confidence increases.
+
+## Triggering Reflection
+
+Reflection runs in three modes:
+
+1. **Automatic** — triggered when the memory count for an entity exceeds `min_memories` and at least `interval_seconds` have passed since the last cycle.
+2. **Manual** — triggered via `client.reflect(entity)` or `hebbs-cli reflect --entity`.
+3. **Disabled** — set `enabled = false` or `set_policy(entity, reflect_enabled=False)`.
+
+## Resource Considerations
+
+- Reflection is CPU and LLM-API intensive but runs in the background on a dedicated thread pool.
+- The `max_insights_per_cycle` limit bounds the LLM cost per reflection cycle.
+- Reflection never blocks hot-path operations (remember, recall, prime).

@@ -1,0 +1,644 @@
+---
+title: Configuration Reference
+description: "Complete reference for all HEBBS server configuration: TOML file, environment variables, and defaults."
+---
+
+HEBBS works out of the box with zero configuration. Every setting has a sensible default. You only need a config file when you want to change something -- ports, storage location, enable reflection, tune limits.
+
+## How Configuration Works
+
+There are three ways to configure HEBBS, listed in order of precedence (highest wins):
+
+1. **Environment variables** -- override any TOML value. Best for secrets and container deployments.
+2. **TOML config file** -- the primary config method. Best for server tuning.
+3. **Built-in defaults** -- what HEBBS uses when you specify nothing.
+
+### Loading a config file
+
+Pass a config file explicitly:
+
+```bash
+hebbs-server --config /path/to/hebbs.toml
+```
+
+Or let HEBBS discover it automatically. It checks these locations in order:
+
+1. `./hebbs.toml` (current directory)
+2. `~/.config/hebbs/hebbs.toml` (user config)
+3. `/etc/hebbs/hebbs.toml` (system-wide)
+
+If no file is found, HEBBS starts with defaults.
+
+### Minimal config
+
+The smallest useful config file -- just set a persistent data directory:
+
+```toml
+[storage]
+data_dir = "/var/lib/hebbs"
+```
+
+Everything else uses defaults. You can add sections as needed.
+
+---
+
+## Server
+
+Controls network ports, bind address, and connection limits. Change this when you need different ports, want to restrict the bind address, or are tuning for high concurrency.
+
+```toml
+[server]
+grpc_port = 6380
+http_port = 6381
+bind_address = "0.0.0.0"
+max_connections = 1000
+request_timeout_ms = 30000
+max_blocking_threads = 256
+shutdown_timeout_secs = 15
+max_request_size_bytes = 1048576
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `grpc_port` | u16 | `6380` | Port for the gRPC API |
+| `http_port` | u16 | `6381` | Port for the HTTP/REST API |
+| `bind_address` | string | `"0.0.0.0"` | Network interface to bind to. Use `127.0.0.1` to restrict to localhost |
+| `max_connections` | int | `1000` | Maximum concurrent client connections |
+| `request_timeout_ms` | int | `30000` | Request timeout in milliseconds (30s) |
+| `max_blocking_threads` | int | `256` | Tokio blocking thread pool size for RocksDB I/O |
+| `shutdown_timeout_secs` | int | `15` | Graceful shutdown wait time before force-killing |
+| `max_request_size_bytes` | int | `1048576` | Maximum request payload size (1 MB) |
+
+**Override with env vars:**
+
+```bash
+export HEBBS_SERVER_GRPC_PORT=7000
+export HEBBS_SERVER_HTTP_PORT=7001
+export HEBBS_SERVER_BIND_ADDRESS=127.0.0.1
+export HEBBS_SERVER_SHUTDOWN_TIMEOUT_SECS=30
+hebbs-server
+```
+
+---
+
+## Storage
+
+Controls where HEBBS persists data and how RocksDB is tuned. Change this to set a durable data directory or increase cache for large datasets.
+
+```toml
+[storage]
+data_dir = "./hebbs-data"
+block_cache_mb = 256
+write_buffer_mb = 64
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `data_dir` | string | `"./hebbs-data"` | Directory for all persistent data (RocksDB, models, keys) |
+| `block_cache_mb` | int | `256` | RocksDB block cache size in MB. Increase for read-heavy workloads |
+| `write_buffer_mb` | int | `64` | RocksDB write buffer size in MB. Increase for write-heavy workloads |
+
+**Override with env vars:**
+
+```bash
+export HEBBS_STORAGE_DATA_DIR=/var/lib/hebbs
+hebbs-server
+```
+
+**Production tip:** For 1M+ memories, consider `block_cache_mb = 512` and `write_buffer_mb = 128`.
+
+---
+
+## Embedding
+
+Controls the embedding model used to convert text into vectors. HEBBS ships with **BGE-small-en-v1.5** (384 dimensions) and auto-downloads it from HuggingFace on first start.
+
+```toml
+[embedding]
+provider = "onnx"
+# model_path = ""            # auto-detected: {data_dir}/models/bge-small-en-v1.5
+dimensions = 384
+max_batch_size = 256
+auto_download = true
+download_base_url = "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main"
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `provider` | string | `"onnx"` | `"onnx"` for real embeddings, `"mock"` for testing (hash-based, no model needed) |
+| `model_path` | string | `null` | Directory with `model.onnx` + `tokenizer.json`. Defaults to `{data_dir}/models/bge-small-en-v1.5` |
+| `dimensions` | int | `384` | Embedding vector dimensions. Must match the model |
+| `max_batch_size` | int | `256` | Maximum texts per inference batch |
+| `auto_download` | bool | `true` | Download the model from HuggingFace if not present |
+| `download_base_url` | string | HuggingFace BGE URL | Base URL for model file downloads |
+
+**Override with env vars:**
+
+```bash
+export HEBBS_EMBEDDING_PROVIDER=onnx
+export HEBBS_EMBEDDING_MODEL_PATH=/models/custom-model
+export HEBBS_EMBEDDING_DIMENSIONS=768
+export HEBBS_EMBEDDING_AUTO_DOWNLOAD=false
+hebbs-server
+```
+
+### Using a different ONNX model
+
+HEBBS works with any sentence-transformer model exported to ONNX that uses the standard BERT-style inputs (`input_ids`, `attention_mask`, `token_type_ids`). To swap models:
+
+1. Download the ONNX model files (`model.onnx` and `tokenizer.json`) into a directory
+2. Set `model_path` to that directory
+3. Set `dimensions` to match the model's output size
+4. Set `auto_download = false`
+
+```toml
+[embedding]
+model_path = "/models/bge-base-en-v1.5"
+dimensions = 768
+auto_download = false
+```
+
+### Compatible models
+
+| Model | Dimensions | Size | Quality | Use when |
+|-------|-----------|------|---------|----------|
+| **BGE-small-en-v1.5** (default) | 384 | ~33 MB | Good | Low memory, fast inference, most use cases |
+| **BGE-base-en-v1.5** | 768 | ~110 MB | Better | Higher recall precision needed |
+| **BGE-large-en-v1.5** | 1024 | ~335 MB | Best BGE | Maximum quality, resources available |
+| **all-MiniLM-L6-v2** | 384 | ~23 MB | Good | Smallest footprint, edge deployments |
+| **all-MiniLM-L12-v2** | 384 | ~33 MB | Better | Good balance of size and quality |
+| **E5-small-v2** | 384 | ~33 MB | Good | Alternative to BGE-small |
+| **E5-base-v2** | 768 | ~110 MB | Better | Alternative to BGE-base |
+| **nomic-embed-text-v1.5** | 768 | ~137 MB | Very good | Long context support |
+
+All models are available on [HuggingFace](https://huggingface.co) with ONNX exports. Download the `onnx/model.onnx` and `tokenizer.json` files into a directory and point `model_path` at it.
+
+### Air-gapped / offline setup
+
+For environments without internet access, pre-provision the model files and disable auto-download:
+
+```toml
+[embedding]
+model_path = "/opt/hebbs/models/bge-small-en-v1.5"
+auto_download = false
+```
+
+The model directory must contain:
+- `model.onnx` -- the ONNX model file
+- `tokenizer.json` -- the HuggingFace tokenizer
+- `config.json` (optional) -- auto-generated if missing
+
+---
+
+## Reflection (Background Learning)
+
+The reflection pipeline consolidates raw memories into higher-level insights using an LLM. It is **disabled by default** because it requires an LLM API key.
+
+When enabled, HEBBS periodically clusters similar memories, asks an LLM to propose insights from those clusters, validates them with a second LLM call, and stores the results as `Insight`-kind memories with lineage tracking back to their sources.
+
+```toml
+[reflect]
+enabled = false
+trigger_check_interval_secs = 60
+threshold_trigger_count = 50
+schedule_trigger_interval_secs = 86400
+max_memories_per_reflect = 5000
+min_memories_for_reflect = 5
+proposal_provider = "openai"
+proposal_model = "gpt-4o"
+validation_provider = "openai"
+validation_model = "gpt-4o"
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `false` | Enable the reflection pipeline |
+| `trigger_check_interval_secs` | int | `60` | How often to check if reflection should trigger (seconds) |
+| `threshold_trigger_count` | int | `50` | Number of new memories that triggers reflection |
+| `schedule_trigger_interval_secs` | int | `86400` | Time-based reflection trigger interval (default: 24 hours) |
+| `max_memories_per_reflect` | int | `5000` | Maximum memories to process per reflection cycle |
+| `min_memories_for_reflect` | int | `5` | Minimum memories required before reflection runs |
+| `proposal_provider` | string | `"openai"` | LLM provider for proposing insights |
+| `proposal_model` | string | `"gpt-4o"` | Model name for proposals |
+| `validation_provider` | string | `"openai"` | LLM provider for validating insights |
+| `validation_model` | string | `"gpt-4o"` | Model name for validation |
+
+### Supported LLM providers
+
+| Provider name | Aliases | API key env var | Default base URL |
+|--------------|---------|----------------|------------------|
+| `openai` | `gpt` | `OPENAI_API_KEY` | `https://api.openai.com` |
+| `anthropic` | `claude` | `ANTHROPIC_API_KEY` | `https://api.anthropic.com` |
+| `gemini` | `google` | `GEMINI_API_KEY` | `https://generativelanguage.googleapis.com` |
+| `ollama` | `local` | None (local) | `http://localhost:11434` |
+
+API keys are always set via environment variables, never in the TOML file.
+
+### Enable with OpenAI
+
+```toml
+[reflect]
+enabled = true
+proposal_provider = "openai"
+proposal_model = "gpt-4o"
+validation_provider = "openai"
+validation_model = "gpt-4o"
+```
+
+```bash
+export OPENAI_API_KEY=sk-...
+hebbs-server --config hebbs.toml
+```
+
+### Enable with Anthropic
+
+```toml
+[reflect]
+enabled = true
+proposal_provider = "anthropic"
+proposal_model = "claude-sonnet-4-20250514"
+validation_provider = "anthropic"
+validation_model = "claude-sonnet-4-20250514"
+```
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+hebbs-server --config hebbs.toml
+```
+
+### Enable with Ollama (local, no API key)
+
+```toml
+[reflect]
+enabled = true
+proposal_provider = "ollama"
+proposal_model = "llama3"
+validation_provider = "ollama"
+validation_model = "llama3"
+```
+
+```bash
+ollama serve &          # start Ollama on localhost:11434
+hebbs-server --config hebbs.toml
+```
+
+### Mix providers
+
+You can use different providers for proposal and validation:
+
+```toml
+[reflect]
+enabled = true
+proposal_provider = "openai"
+proposal_model = "gpt-4o"
+validation_provider = "anthropic"
+validation_model = "claude-sonnet-4-20250514"
+```
+
+```bash
+export OPENAI_API_KEY=sk-...
+export ANTHROPIC_API_KEY=sk-ant-...
+hebbs-server --config hebbs.toml
+```
+
+**Override with env vars:**
+
+```bash
+export HEBBS_REFLECT_ENABLED=true
+export HEBBS_REFLECT_PROPOSAL_PROVIDER=openai
+export HEBBS_REFLECT_PROPOSAL_MODEL=gpt-4o
+export HEBBS_REFLECT_VALIDATION_PROVIDER=openai
+export HEBBS_REFLECT_VALIDATION_MODEL=gpt-4o
+export OPENAI_API_KEY=sk-...
+hebbs-server
+```
+
+---
+
+## Decay (Memory Aging)
+
+Controls how memories lose importance over time. **Enabled by default.** Memories that haven't been recalled gradually decay in importance. When importance drops below `auto_forget_threshold`, the memory is automatically pruned.
+
+Memories that are recalled frequently get reinforced (Hebbian learning), counteracting decay.
+
+```toml
+[decay]
+enabled = true
+half_life_days = 30
+sweep_interval_secs = 3600
+batch_size = 10000
+auto_forget_threshold = 0.01
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable temporal decay |
+| `half_life_days` | int | `30` | Time for a memory's importance to halve if never recalled |
+| `sweep_interval_secs` | int | `3600` | How often to run the decay sweep (default: 1 hour) |
+| `batch_size` | int | `10000` | Maximum memories processed per sweep |
+| `auto_forget_threshold` | float | `0.01` | Importance below this triggers automatic pruning |
+
+**Override with env vars:**
+
+```bash
+export HEBBS_DECAY_ENABLED=true
+hebbs-server
+```
+
+**Tuning tips:**
+- **Short-lived agents** (e.g., single-session bots): set `half_life_days = 7`
+- **Long-term knowledge bases**: set `half_life_days = 365` or disable decay entirely
+- **Aggressive pruning**: lower `auto_forget_threshold` to `0.05`
+
+---
+
+## Authentication
+
+Controls API key authentication. **Enabled by default.** On first start with no existing keys, HEBBS auto-generates a bootstrap admin API key and prints it to the console. Save this key -- it's the only way to access the API when auth is enabled.
+
+```toml
+[auth]
+enabled = true
+# keys_file = "/path/to/keys.json"    # optional
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Require bearer token authentication |
+| `keys_file` | string | `null` | Optional path to pre-provisioned API keys file |
+
+**Override with env vars:**
+
+```bash
+export HEBBS_AUTH_ENABLED=false    # disable auth (development only!)
+hebbs-server
+```
+
+**Using the API key:**
+
+With the CLI:
+
+```bash
+export HEBBS_API_KEY=your-api-key-here
+hebbs-cli remember "hello world"
+```
+
+Or pass it per-command:
+
+```bash
+hebbs-cli --api-key your-api-key-here remember "hello world"
+```
+
+With the Python SDK:
+
+```python
+async with HebbsClient("localhost:6380", api_key="your-api-key-here") as client:
+    await client.remember("hello world")
+```
+
+---
+
+## Rate Limiting
+
+Controls per-tenant request rate limits, split by operation class. **Enabled by default.** Protects the server from being overwhelmed by a single tenant.
+
+```toml
+[rate_limit]
+enabled = true
+write_rate = 1000.0
+write_burst = 5000
+read_rate = 5000.0
+read_burst = 10000
+admin_rate = 10.0
+admin_burst = 20
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable rate limiting |
+| `write_rate` | float | `1000.0` | Sustained writes per second per tenant |
+| `write_burst` | int | `5000` | Write burst allowance |
+| `read_rate` | float | `5000.0` | Sustained reads per second per tenant |
+| `read_burst` | int | `10000` | Read burst allowance |
+| `admin_rate` | float | `10.0` | Sustained admin ops per second per tenant |
+| `admin_burst` | int | `20` | Admin burst allowance |
+
+**Operation classes:**
+
+| Class | Operations |
+|-------|-----------|
+| Write | `remember`, `revise`, `forget` |
+| Read | `recall`, `prime`, `subscribe`, `insights`, `get`, `feed` |
+| Admin | `reflect`, `reflect_policy`, `set_policy`, key management |
+
+**Override with env vars:**
+
+```bash
+export HEBBS_RATE_LIMIT_ENABLED=true
+export HEBBS_RATE_LIMIT_WRITE_RATE=500
+export HEBBS_RATE_LIMIT_READ_RATE=2000
+hebbs-server
+```
+
+---
+
+## Tenancy
+
+Controls multi-tenant limits and resource bounds. These protect the server from any single tenant consuming too many resources.
+
+### How Tenants Work
+
+Every request is scoped to a tenant. In authenticated mode, the API key determines the tenant — each key is bound to exactly one `tenant_id`. The server validates that any `tenant_id` in the request matches the key's tenant; mismatches are rejected with `permission_denied`. In no-auth mode (`HEBBS_AUTH_ENABLED=false`), all operations use the `"default"` tenant unless an explicit `tenant_id` is provided.
+
+Tenant isolation is structural: storage keys in RocksDB are prefixed with the tenant ID, associative HNSW graph traversal is partitioned per tenant, and temporal indexes are scoped per tenant. There is no way for one tenant to query, modify, or observe another tenant's data.
+
+```toml
+[tenancy]
+max_tenants = 10000
+max_memories_per_tenant = 10000000
+hnsw_eviction_secs = 3600
+max_loaded_hnsw = 100
+max_snapshots_per_memory = 100
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `max_tenants` | int | `10000` | Maximum number of tenants |
+| `max_memories_per_tenant` | int | `10000000` | Maximum memories per tenant (10M) |
+| `hnsw_eviction_secs` | int | `3600` | Evict idle HNSW indexes from memory after this duration (1 hour) |
+| `max_loaded_hnsw` | int | `100` | Maximum HNSW indexes loaded in memory simultaneously |
+| `max_snapshots_per_memory` | int | `100` | Maximum revision snapshots kept per memory |
+
+**Override with env vars:**
+
+```bash
+export HEBBS_TENANCY_MAX_TENANTS=100
+export HEBBS_TENANCY_MAX_MEMORIES_PER_TENANT=1000000
+hebbs-server
+```
+
+---
+
+## Logging
+
+Controls log output format and verbosity.
+
+```toml
+[logging]
+level = "info"
+format = "pretty"
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `level` | string | `"info"` | Log level: `trace`, `debug`, `info`, `warn`, `error` |
+| `format` | string | `"pretty"` | Output format: `"pretty"` (human-readable) or `"json"` (structured, for production) |
+
+**Override with env vars:**
+
+```bash
+export HEBBS_LOGGING_LEVEL=debug
+export HEBBS_LOGGING_FORMAT=json
+hebbs-server
+```
+
+---
+
+## Metrics
+
+Controls the Prometheus metrics endpoint.
+
+```toml
+[metrics]
+enabled = true
+endpoint = "/v1/metrics"
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Expose the Prometheus metrics endpoint |
+| `endpoint` | string | `"/v1/metrics"` | HTTP path for metrics scraping |
+
+Scrape metrics with:
+
+```bash
+curl http://localhost:6381/v1/metrics
+```
+
+---
+
+## Environment Variable Reference
+
+Every `HEBBS_*` environment variable and its corresponding TOML key:
+
+| Environment Variable | TOML Key | Type |
+|---------------------|----------|------|
+| `HEBBS_SERVER_GRPC_PORT` | `server.grpc_port` | u16 |
+| `HEBBS_SERVER_HTTP_PORT` | `server.http_port` | u16 |
+| `HEBBS_SERVER_BIND_ADDRESS` | `server.bind_address` | string |
+| `HEBBS_SERVER_SHUTDOWN_TIMEOUT_SECS` | `server.shutdown_timeout_secs` | int |
+| `HEBBS_STORAGE_DATA_DIR` | `storage.data_dir` | string |
+| `HEBBS_EMBEDDING_PROVIDER` | `embedding.provider` | string |
+| `HEBBS_EMBEDDING_MODEL_PATH` | `embedding.model_path` | string |
+| `HEBBS_EMBEDDING_DIMENSIONS` | `embedding.dimensions` | int |
+| `HEBBS_EMBEDDING_AUTO_DOWNLOAD` | `embedding.auto_download` | bool |
+| `HEBBS_DECAY_ENABLED` | `decay.enabled` | bool |
+| `HEBBS_REFLECT_ENABLED` | `reflect.enabled` | bool |
+| `HEBBS_REFLECT_PROPOSAL_PROVIDER` | `reflect.proposal_provider` | string |
+| `HEBBS_REFLECT_PROPOSAL_MODEL` | `reflect.proposal_model` | string |
+| `HEBBS_REFLECT_VALIDATION_PROVIDER` | `reflect.validation_provider` | string |
+| `HEBBS_REFLECT_VALIDATION_MODEL` | `reflect.validation_model` | string |
+| `HEBBS_AUTH_ENABLED` | `auth.enabled` | bool |
+| `HEBBS_TENANCY_MAX_TENANTS` | `tenancy.max_tenants` | int |
+| `HEBBS_TENANCY_MAX_MEMORIES_PER_TENANT` | `tenancy.max_memories_per_tenant` | int |
+| `HEBBS_RATE_LIMIT_ENABLED` | `rate_limit.enabled` | bool |
+| `HEBBS_RATE_LIMIT_WRITE_RATE` | `rate_limit.write_rate` | float |
+| `HEBBS_RATE_LIMIT_READ_RATE` | `rate_limit.read_rate` | float |
+| `HEBBS_LOGGING_LEVEL` | `logging.level` | string |
+| `HEBBS_LOGGING_FORMAT` | `logging.format` | string |
+
+### LLM API keys (for reflection)
+
+These are not HEBBS config keys -- they are read directly by the LLM provider clients:
+
+| Environment Variable | Used by |
+|---------------------|---------|
+| `OPENAI_API_KEY` | `proposal_provider = "openai"` or `validation_provider = "openai"` |
+| `ANTHROPIC_API_KEY` | `proposal_provider = "anthropic"` or `validation_provider = "anthropic"` |
+| `GEMINI_API_KEY` | `proposal_provider = "gemini"` or `validation_provider = "gemini"` |
+
+Ollama requires no API key (runs locally on `http://localhost:11434`).
+
+---
+
+## Full Example
+
+A production-ready config file with all sections:
+
+```toml
+[server]
+grpc_port = 6380
+http_port = 6381
+bind_address = "0.0.0.0"
+max_connections = 1000
+request_timeout_ms = 30000
+max_blocking_threads = 256
+shutdown_timeout_secs = 15
+max_request_size_bytes = 1048576
+
+[storage]
+data_dir = "/var/lib/hebbs"
+block_cache_mb = 512
+write_buffer_mb = 128
+
+[embedding]
+provider = "onnx"
+dimensions = 384
+max_batch_size = 256
+auto_download = true
+
+[decay]
+enabled = true
+half_life_days = 30
+sweep_interval_secs = 3600
+batch_size = 10000
+auto_forget_threshold = 0.01
+
+[reflect]
+enabled = true
+proposal_provider = "openai"
+proposal_model = "gpt-4o"
+validation_provider = "openai"
+validation_model = "gpt-4o"
+threshold_trigger_count = 50
+schedule_trigger_interval_secs = 86400
+
+[auth]
+enabled = true
+
+[rate_limit]
+enabled = true
+write_rate = 1000.0
+write_burst = 5000
+read_rate = 5000.0
+read_burst = 10000
+
+[tenancy]
+max_tenants = 10000
+max_memories_per_tenant = 10000000
+
+[logging]
+level = "info"
+format = "json"
+
+[metrics]
+enabled = true
+endpoint = "/v1/metrics"
+```
+
+Start with:
+
+```bash
+export OPENAI_API_KEY=sk-...
+hebbs-server --config hebbs.toml
+```

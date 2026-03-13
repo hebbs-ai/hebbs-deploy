@@ -1,0 +1,147 @@
+---
+title: "Monitoring"
+description: "Monitor HEBBS with Prometheus and Grafana."
+---
+
+HEBBS exposes a Prometheus-compatible metrics endpoint that provides detailed operational telemetry. This guide covers Prometheus scrape configuration, Grafana dashboard setup, and recommended alert rules.
+
+## Metrics Endpoint
+
+By default, HEBBS serves metrics at `http://localhost:9090/metrics` in Prometheus exposition format.
+
+Configure the port in `config.toml`:
+
+```toml
+[metrics]
+enabled = true
+port = 9090
+```
+
+## Prometheus Configuration
+
+### Static Scrape Config
+
+```yaml
+scrape_configs:
+  - job_name: "hebbs"
+    scrape_interval: 15s
+    static_configs:
+      - targets: ["hebbs-server:9090"]
+```
+
+### Kubernetes ServiceMonitor
+
+If using the Prometheus Operator, enable the ServiceMonitor in the Helm values:
+
+```yaml
+serviceMonitor:
+  enabled: true
+  interval: 15s
+  labels:
+    release: prometheus
+```
+
+## Available Metrics
+
+### Operation Latencies
+
+| Metric | Type | Description |
+|---|---|---|
+| `hebbs_remember_duration_seconds` | Histogram | Remember operation latency |
+| `hebbs_recall_duration_seconds` | Histogram | Recall operation latency |
+| `hebbs_revise_duration_seconds` | Histogram | Revise operation latency |
+| `hebbs_forget_duration_seconds` | Histogram | Forget operation latency |
+| `hebbs_prime_duration_seconds` | Histogram | Prime operation latency |
+| `hebbs_reflect_duration_seconds` | Histogram | Reflect pipeline latency |
+| `hebbs_embed_duration_seconds` | Histogram | Embedding generation latency |
+
+### Throughput
+
+| Metric | Type | Description |
+|---|---|---|
+| `hebbs_operations_total` | Counter | Total operations by type and status |
+| `hebbs_memories_total` | Gauge | Total memories stored |
+| `hebbs_subscriptions_active` | Gauge | Active subscription streams |
+
+### Resource Usage
+
+| Metric | Type | Description |
+|---|---|---|
+| `hebbs_storage_bytes` | Gauge | RocksDB storage size |
+| `hebbs_index_hnsw_nodes` | Gauge | HNSW index node count |
+| `hebbs_index_graph_edges` | Gauge | Graph index edge count |
+| `hebbs_compaction_duration_seconds` | Histogram | RocksDB compaction latency |
+
+## Grafana Dashboard
+
+### Import the Dashboard
+
+1. Open Grafana and navigate to **Dashboards > Import**
+2. Enter dashboard ID `XXXXX` (published on Grafana.com) or upload the JSON from the HEBBS repository at `deploy/grafana/hebbs-dashboard.json`
+3. Select your Prometheus data source
+4. Click **Import**
+
+### Dashboard Panels
+
+The default dashboard includes:
+
+- **Operations Overview** — request rate and error rate by operation type
+- **Latency Percentiles** — p50, p95, p99 for each operation
+- **Memory Count** — total memories over time
+- **Storage** — RocksDB size and compaction activity
+- **Embedding** — embedding generation throughput and latency
+- **Reflection** — reflect pipeline execution frequency and insight generation
+- **Subscriptions** — active subscriptions and push rate
+
+## Alert Rules
+
+### Recommended Alerts
+
+```yaml
+groups:
+  - name: hebbs
+    rules:
+      - alert: HebbsHighLatency
+        expr: histogram_quantile(0.99, rate(hebbs_recall_duration_seconds_bucket[5m])) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HEBBS recall p99 latency exceeds 10ms"
+
+      - alert: HebbsHighErrorRate
+        expr: rate(hebbs_operations_total{status="error"}[5m]) / rate(hebbs_operations_total[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HEBBS error rate exceeds 1%"
+
+      - alert: HebbsStorageHigh
+        expr: hebbs_storage_bytes > 100e9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HEBBS storage exceeds 100GB"
+
+      - alert: HebbsDown
+        expr: up{job="hebbs"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HEBBS server is unreachable"
+```
+
+## Logging
+
+HEBBS uses structured JSON logging. Log level is controlled by the `HEBBS_LOG_LEVEL` environment variable or `config.toml`:
+
+```toml
+[logging]
+level = "info"
+format = "json"
+```
+
+For log aggregation, ship logs to your preferred system (Loki, Elasticsearch, CloudWatch) using a sidecar or node-level log collector.

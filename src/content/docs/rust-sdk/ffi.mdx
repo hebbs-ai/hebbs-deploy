@@ -1,0 +1,132 @@
+---
+title: "FFI (C/C++)"
+description: "Use HEBBS from C/C++ via the FFI bindings."
+---
+
+The `hebbs-ffi` crate provides a C-compatible FFI layer for embedding HEBBS client functionality into C, C++, or any language that supports C FFI. It uses an opaque handle pattern with JSON-based data exchange.
+
+## Overview
+
+The FFI bindings expose a simplified synchronous interface that wraps the async Rust client internally. Data is exchanged as JSON strings across the FFI boundary, avoiding the complexity of mapping Rust types to C structs.
+
+## Building the FFI Library
+
+```bash
+cd hebbs/crates/hebbs-ffi
+cargo build --release
+```
+
+This produces:
+
+- `target/release/libhebbs_ffi.so` (Linux)
+- `target/release/libhebbs_ffi.dylib` (macOS)
+
+## C Header
+
+The generated header file (`hebbs_ffi.h`) defines the public API:
+
+```c
+typedef struct HEBBSClient HEBBSClient;
+
+/* Lifecycle */
+int hebbs_connect(const char *address, HEBBSClient **out_client);
+void hebbs_disconnect(HEBBSClient *client);
+
+/* Core operations */
+int hebbs_remember(HEBBSClient *client, const char *request_json, char **out_json);
+int hebbs_recall(HEBBSClient *client, const char *request_json, char **out_json);
+int hebbs_get(HEBBSClient *client, const char *memory_id, char **out_json);
+int hebbs_revise(HEBBSClient *client, const char *request_json, char **out_json);
+int hebbs_forget(HEBBSClient *client, const char *request_json, char **out_json);
+int hebbs_reflect(HEBBSClient *client, const char *entity, char **out_json);
+int hebbs_health(HEBBSClient *client, char **out_json);
+
+/* Memory management */
+void hebbs_free_string(char *s);
+
+/* Error handling */
+const char *hebbs_last_error(void);
+```
+
+## Opaque Handle Pattern
+
+The `HEBBSClient` type is an opaque pointer. You cannot access its internals from C — all interaction goes through the API functions. This ensures memory safety and allows the Rust implementation to evolve without breaking the ABI.
+
+```c
+HEBBSClient *client = NULL;
+int rc = hebbs_connect("localhost:50051", &client);
+if (rc != 0) {
+    fprintf(stderr, "Failed to connect: %s\n", hebbs_last_error());
+    return 1;
+}
+
+// Use client...
+
+hebbs_disconnect(client);
+```
+
+## JSON Data Exchange
+
+All requests and responses are JSON strings. This simplifies the FFI boundary at the cost of serialization overhead (acceptable for most use cases since the network round-trip dominates).
+
+### Remember Example
+
+```c
+const char *request = "{"
+    "\"content\": \"Customer prefers email\","
+    "\"entity\": \"customer-42\","
+    "\"kind\": \"episodic\""
+    "}";
+
+char *response = NULL;
+int rc = hebbs_remember(client, request, &response);
+if (rc == 0) {
+    printf("Response: %s\n", response);
+    hebbs_free_string(response);
+}
+```
+
+### Recall Example
+
+```c
+const char *request = "{"
+    "\"query\": \"contact preferences\","
+    "\"entity\": \"customer-42\","
+    "\"strategy\": \"similarity\","
+    "\"top_k\": 5"
+    "}";
+
+char *response = NULL;
+int rc = hebbs_recall(client, request, &response);
+if (rc == 0) {
+    printf("Results: %s\n", response);
+    hebbs_free_string(response);
+}
+```
+
+## Thread Safety
+
+The `HEBBSClient` handle is `Send + Sync` on the Rust side. It is safe to share a single handle across multiple threads in C/C++. Each function call is internally dispatched to the async runtime and blocks the calling thread until completion.
+
+Do **not** call `hebbs_disconnect` while other threads are using the same handle. Ensure all operations complete before disconnecting.
+
+## Memory Management
+
+- Strings returned via `char **out_json` are allocated by Rust. You **must** free them with `hebbs_free_string()`.
+- Never call `free()` directly on strings returned by the FFI — they are allocated by the Rust allocator.
+- The `HEBBSClient` handle is freed by `hebbs_disconnect()`. Do not call it twice.
+
+## Error Handling
+
+All functions return an `int` status code:
+
+| Code | Meaning |
+|---|---|
+| `0` | Success |
+| `1` | Connection error |
+| `2` | Timeout |
+| `3` | Not found |
+| `4` | Invalid argument |
+| `5` | Internal error |
+
+Call `hebbs_last_error()` after a non-zero return to get a human-readable error message. The returned string is thread-local and valid until the next FFI call on the same thread.

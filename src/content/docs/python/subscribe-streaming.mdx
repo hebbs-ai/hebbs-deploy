@@ -1,0 +1,123 @@
+---
+title: "Subscribe Streaming"
+description: "Real-time memory surfacing with the Python SDK."
+---
+
+The `subscribe()` method opens a bidirectional gRPC stream that surfaces relevant memories in real-time as new context is fed into the conversation. This enables agents to receive memory pushes without polling.
+
+## Opening a Subscription
+
+```python
+from hebbs import HebbsClient
+
+async with HebbsClient.connect("localhost:50051") as client:
+    subscription = await client.subscribe(
+        entity="customer-42",
+        strategy="similarity",
+        top_k=5,
+        threshold=0.7,
+    )
+```
+
+The returned `Subscription` object manages the stream lifecycle.
+
+## Feeding Context
+
+Use `feed()` to send new text into the subscription. HEBBS evaluates it against the memory store and pushes back any relevant memories:
+
+```python
+await subscription.feed("The customer asked about GDPR compliance")
+```
+
+Each `feed()` call triggers a server-side recall against the entity's memory store. If relevant memories are found above the threshold, they are pushed back through the stream.
+
+## Receiving Pushes
+
+### Async Iteration
+
+The `Subscription` object is an async iterator. Each yielded item is a `SubscribePush`:
+
+```python
+async for push in subscription:
+    print(f"Triggered by: {push.trigger}")
+    for result in push.memories:
+        print(f"  [{result.score:.3f}] {result.memory.content}")
+```
+
+### Manual Receive
+
+For more control, use `receive()` to get the next push with an optional timeout:
+
+```python
+push = await subscription.receive(timeout=5.0)
+if push is not None:
+    for result in push.memories:
+        process_memory(result.memory)
+```
+
+Returns `None` if the timeout expires without a push.
+
+## Lifecycle Management
+
+### Closing the Subscription
+
+```python
+await subscription.close()
+```
+
+The subscription is also closed automatically when the `HebbsClient` context manager exits.
+
+### Context Manager
+
+`Subscription` supports `async with` for scoped lifecycle management:
+
+```python
+async with await client.subscribe(entity="customer-42") as sub:
+    await sub.feed("Hello, I need help with billing")
+    async for push in sub:
+        handle_push(push)
+```
+
+### Checking Status
+
+```python
+if subscription.is_active:
+    await subscription.feed("more context")
+```
+
+## Full Agent Example
+
+```python
+import asyncio
+from hebbs import HebbsClient
+
+async def agent_with_memory(user_messages):
+    async with HebbsClient.connect("localhost:50051") as client:
+        async with await client.subscribe(
+            entity="session-123",
+            strategy="similarity",
+            top_k=3,
+            threshold=0.65,
+        ) as sub:
+
+            async def memory_listener():
+                async for push in sub:
+                    context = "\n".join(
+                        r.memory.content for r in push.memories
+                    )
+                    print(f"Memory context available:\n{context}")
+
+            listener = asyncio.create_task(memory_listener())
+
+            for message in user_messages:
+                await sub.feed(message)
+                await asyncio.sleep(0.1)  # allow pushes to arrive
+
+            listener.cancel()
+```
+
+## Performance Considerations
+
+- Each `feed()` triggers a server-side recall. Avoid feeding every keystroke — debounce to sentence or utterance boundaries.
+- The `threshold` parameter controls push frequency. Higher thresholds (0.8+) produce fewer, higher-relevance pushes.
+- `top_k` limits the number of memories per push. Keep it small (3–5) for real-time use cases.

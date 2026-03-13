@@ -1,0 +1,42 @@
+---
+title: Importance & Decay
+description: How HEBBS scores importance, reinforces recalled memories, and decays stale ones.
+---
+
+Importance is the primary signal for what matters in HEBBS. It drives recall ranking, decay rate, and reflection prioritization. Understanding importance scoring, Hebbian reinforcement, and temporal decay is essential for tuning memory behavior.
+
+## Importance Scoring
+
+Every memory has an importance score in the range 0.0 to 1.0. Higher scores mean:
+
+- The memory is more likely to be returned when recall results are ranked or limited.
+- The memory decays more slowly (see Temporal Decay below).
+- The memory is prioritized for reflection (clustering and insight generation favor high-importance episodes).
+
+Importance can be set explicitly at `remember` time. If not provided, HEBBS may infer a default (e.g., 0.5) or use heuristics based on content length, entity activity, or other signals. The reflection pipeline can also update importance after analyzing clusters of memories.
+
+## Hebbian Reinforcement
+
+"Neurons that fire together wire together." In HEBBS, memories that are recalled more often become stronger.
+
+When a memory is returned by `recall` or pushed by `subscribe`, the system can apply a small importance boost. This is configurable: you can enable or disable reinforcement, and set the boost amount and cap. The effect: frequently accessed memories (e.g., "the customer's main pain point") stay salient; rarely accessed ones drift toward the background.
+
+Reinforcement is applied asynchronously to avoid adding latency to the hot path. The boost is bounded so a single memory cannot grow unboundedly important.
+
+## Temporal Decay
+
+Memories that are never recalled decay over time. The decay formula uses a configurable half-life: after one half-life period, importance is reduced by a fixed factor (e.g., 50%). The exact curve (exponential, linear, or custom) is configurable per tenant.
+
+Decay is applied during background maintenance (compaction, reflection passes). It does not run on the hot path. The result: old, low-importance memories gradually fade; recent or frequently recalled memories remain prominent.
+
+## Half-Life Configuration
+
+The half-life determines how quickly memories fade. A short half-life (e.g., 24 hours) suits high-churn, ephemeral contexts (chat, real-time dashboards). A long half-life (e.g., 90 days) suits institutional knowledge and long-term customer relationships.
+
+Half-life can be set globally or per entity/tenant. Some entities (e.g., "company knowledge base") may have effectively infinite half-life (no decay).
+
+## Auto-Forget Threshold
+
+Memories whose importance falls below a configurable threshold can be automatically pruned. This is the auto-forget threshold. When compaction runs, memories below the threshold are candidates for removal, subject to retention policies (e.g., minimum age, regulatory holds).
+
+Auto-forget keeps the index lean and prevents noise from accumulating. Set the threshold carefully: too aggressive and you lose useful long-tail context; too conservative and storage grows without bound.

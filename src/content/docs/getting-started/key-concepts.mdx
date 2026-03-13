@@ -1,0 +1,97 @@
+---
+title: Key Concepts
+description: "Core mental model: memories, recall strategies, decay, consolidation, entities, and the agent skill."
+---
+
+## Memories
+
+Memories are the core unit in HEBBS. Each memory has content (the text or payload) and metadata (timestamps, importance score, entity associations, tenant ID).
+
+Three kinds of memories exist:
+
+- **Episode** - raw experience stored by the agent. "Customer asked about pricing." "Deployment failed at 3am."
+- **Insight** - consolidated knowledge produced by the reflection pipeline. "Deals mentioning competitor X with pricing objections have a 73% loss rate." Insights link back to the source episodes that produced them.
+- **Revision** - a belief update that supersedes a previous memory. The predecessor is preserved for lineage.
+
+## Importance
+
+Every memory has an importance score from 0.0 to 1.0. Higher scores indicate memories that should be prioritized during recall. Importance can be set explicitly at write time or inferred by the reflection pipeline. Frequently recalled memories get reinforced - this is the Hebbian learning that gives HEBBS its name.
+
+## Recall Strategies
+
+HEBBS supports four recall strategies, each backed by a purpose-built index:
+
+| Strategy | Question it answers | How it works | Precision vs similarity-only |
+|----------|-------------------|-------------|------------------------------|
+| **Similarity** | "What looks like this?" | HNSW vector index, cosine similarity | Baseline |
+| **Temporal** | "What happened, in order?" | B-tree range scan on (entity_id, created_at) | 91% vs 23% |
+| **Causal** | "What caused this outcome?" | Bounded graph traversal over causal edges | 78% vs 15% |
+| **Analogical** | "What's structurally similar in another domain?" | Structural pattern matching across memory schemas | 74% vs 31% |
+
+Every recall result is ranked by a composite score that blends four signals: **relevance** (semantic similarity), **recency** (how recently created), **importance** (the memory's weight), and **reinforcement** (how often recalled). The weights are configurable per query - one parameter change shifts behavior from pure semantic to recency-biased to importance-prioritized.
+
+See [Recall Strategies](/concepts/recall-strategies/) for the full scoring formula and tuning guide.
+
+## Decay and Reinforcement
+
+Memories decay over time. Less important or older memories are deprioritized. Decay is an exponential function with a configurable half-life (default: 30 days). Memories that fall below a threshold are auto-pruned.
+
+Reinforcement works in the opposite direction - frequently recalled memories get an importance boost. Signal-to-noise improves naturally over time as relevant memories strengthen and irrelevant ones fade.
+
+## Consolidation (Reflection)
+
+The reflection pipeline runs in the background and turns raw episodes into higher-order insights:
+
+1. **Cluster** - similar episodes are grouped by embedding similarity and temporal proximity.
+2. **Propose** - an LLM generates candidate insights from each cluster.
+3. **Validate** - a second LLM pass checks accuracy and faithfulness.
+4. **Consolidate** - validated insights are stored as Insight-kind memories with lineage edges back to sources.
+
+LLM calls happen only in reflection - never on the hot path. The agent gets smarter over time without any developer intervention.
+
+See [Reflection & Insights](/concepts/reflection-insights/) for the full pipeline details.
+
+## Entities (`entity_id`)
+
+Entities provide domain-level scoping. Each memory can be associated with an entity - a customer, user, project, conversation, or any application-defined subject. Key behaviors:
+
+- **Recall scoping**: Pass `entity_id` to restrict retrieval to memories about that subject.
+- **Temporal recall**: Requires `entity_id` - it queries "recent history for this entity."
+- **Prime**: Requires `entity_id` - it pre-loads context for a specific subject.
+- **Forget by entity**: Deletes all memories for a subject (GDPR "right to erasure" path).
+- **Cross-entity recall**: Similarity search across all entities in the same tenant works by omitting `entity_id`. Use this for knowledge transfer ("what did I learn from customer A that applies to customer B?").
+
+`entity_id` is optional on all operations except `prime` and entity-scoped `reflect`.
+
+## Tenants (`tenant_id`)
+
+Tenants provide infrastructure-level data isolation. All storage keys are prefixed by tenant, HNSW index traversal is partitioned per tenant, and data from one tenant is structurally invisible to another.
+
+- In **authenticated mode**, `tenant_id` is derived from the API key - each key is bound to exactly one tenant.
+- In **no-auth mode**, all data lives under the `"default"` tenant.
+- SDKs accept an explicit `tenant_id` at construction time (Python: `HebbsClient(addr, tenant_id=...)`, TypeScript: `new HebbsClient(addr, { tenantId: ... })`, Rust: `.tenant_id("...")` on the builder).
+- The CLI supports `--tenant` or `HEBBS_TENANT` environment variable.
+
+One tenant can have thousands of entities. Entities within the same tenant can see each other via cross-entity recall. Tenants can never see each other's data.
+
+## Edges and Lineage
+
+Memories can be linked via typed edges:
+
+| Edge type | Meaning |
+|-----------|---------|
+| **CausedBy** | "A was caused by B" - enables causal recall |
+| **FollowedBy** | "A happened after B" - enables sequential narratives |
+| **RelatedTo** | General association |
+| **RevisedFrom** | "A supersedes B" - revision lineage |
+| **InsightFrom** | "This insight was derived from these episodes" |
+
+Lineage tracking means every insight traces back to its sources, every revision traces back to its predecessor, and causal chains can be walked forward or backward. This makes memory auditable and trustworthy.
+
+## Agent Skill
+
+HEBBS ships as a drop-in agent skill. Install the SKILL.md file into your agent's skill directory, and the agent automatically learns to use `remember`, `recall`, `reflect`, `forget`, `prime`, and `insights` as native operations.
+
+The agent decides when to store, what strategy to recall with, and when to consolidate. No developer glue code required.
+
+See the [Agent Skill cookbook](/cookbooks/agent-skill/) for installation instructions.

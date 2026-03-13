@@ -1,0 +1,68 @@
+---
+title: "Performance Targets"
+description: "Latency budgets and throughput targets for all HEBBS operations."
+---
+
+HEBBS defines hard latency budgets for every operation. These are contractual targets — regressions beyond these thresholds block releases.
+
+## Latency Targets
+
+All targets are measured at p99 under load (1000 concurrent clients, 10M memories) unless otherwise noted.
+
+| Operation | p50 Target | p99 Target | Notes |
+|---|---|---|---|
+| `remember` | < 2 ms | < 5 ms | Excludes embedding (amortized via batching) |
+| `recall` (similarity) | < 5 ms | < 10 ms | HNSW query at 10M memories, ef_search=100 |
+| `recall` (temporal) | < 2 ms | < 5 ms | B-tree range scan |
+| `recall` (causal) | < 3 ms | < 8 ms | BFS traversal, max depth 5 |
+| `recall` (analogical) | < 8 ms | < 15 ms | Combined HNSW + cross-entity graph |
+| `get` | < 1 ms | < 2 ms | Single-key RocksDB lookup |
+| `revise` | < 3 ms | < 6 ms | Write new version + update indexes |
+| `forget` (single) | < 2 ms | < 5 ms | Delete from all indexes |
+| `forget` (entity) | varies | varies | Proportional to entity memory count |
+| `prime` | < 5 ms | < 10 ms | Preload into OS page cache |
+| `embed` (single) | < 1 ms | < 2 ms | Single embedding on CPU |
+| `embed` (batch 32) | < 8 ms | < 12 ms | Amortized: ~0.3ms per item |
+| `health` | < 0.5 ms | < 1 ms | No I/O |
+
+## Throughput Targets
+
+| Metric | Target | Configuration |
+|---|---|---|
+| Remember (sustained) | > 3,000/sec | CPU, batch embedding |
+| Remember (sustained) | > 10,000/sec | GPU (CUDA), batch embedding |
+| Recall (concurrent) | > 5,000/sec | 10M memories, similarity |
+| Subscribe pushes | > 1,000/sec | Per subscription stream |
+
+## Embedding Latency Budget
+
+Embedding is the most variable cost. The targets assume batch amortization:
+
+| Mode | Per-Item Latency | Batch Size |
+|---|---|---|
+| CPU (single) | 1–2 ms | 1 |
+| CPU (batched) | 0.25–0.4 ms | 32 |
+| CoreML (Apple Silicon) | 0.1–0.3 ms | 32 |
+| CUDA (NVIDIA) | 0.05–0.15 ms | 32 |
+
+## Reflection Pipeline
+
+Reflection runs in the background and is not subject to hot-path latency budgets. Targets are for overall pipeline completion:
+
+| Metric | Target |
+|---|---|
+| Cluster stage | < 500 ms per 1000 memories |
+| Propose stage | Depends on LLM provider latency |
+| Validate stage | < 100 ms per insight candidate |
+| Consolidate stage | < 50 ms per validated insight |
+| Full cycle (1000 memories) | < 30 seconds (excluding LLM) |
+
+## Measurement
+
+All targets are measured using:
+
+- **Criterion benchmarks** in the `benches/` directory for micro-benchmarks
+- **hebbs-bench** CLI tool for end-to-end load testing
+- **Prometheus histograms** for production monitoring
+
+A regression > 10% on any p99 target blocks the merge. See [Running Benchmarks](/benchmarks/running/) for how to measure.

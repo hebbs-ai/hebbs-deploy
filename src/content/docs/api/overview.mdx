@@ -1,0 +1,58 @@
+---
+title: API Overview
+description: HEBBS exposes 9 operations across 3 groups via gRPC and REST.
+---
+
+## API Access
+
+HEBBS exposes two API surfaces for the same operations:
+
+| Protocol | Port | Use Case |
+|----------|------|----------|
+| **gRPC** | 6380 | Low-latency, streaming, typed clients |
+| **REST** | 6381 | HTTP, curl, browser, webhooks |
+
+Both APIs share the same underlying engine and behavior. Choose gRPC for production agents and low latency; choose REST for scripting, debugging, or integration with HTTP-only systems.
+
+## Authentication
+
+All API requests require a Bearer token when auth is enabled (the default). The server prints a bootstrap API key on first start. Pass it as:
+
+- **REST**: `Authorization: Bearer $HEBBS_API_KEY` header
+- **gRPC**: `authorization: Bearer $HEBBS_API_KEY` metadata
+
+See [REST Endpoints — Authentication](/api/rest-endpoints/#authentication) for details.
+
+## Operations
+
+HEBBS defines exactly 9 operations, grouped into three categories:
+
+### Write
+
+| Operation | Description | Link |
+|-----------|-------------|------|
+| **remember** | Store a new memory with content, importance, context, and optional edges | [remember](/api/remember/) |
+| **revise** | Update a memory's content, importance, or context while preserving history | [revise](/api/revise/) |
+| **forget** | Delete memories by entity, by IDs, or by criteria for GDPR compliance | [forget](/api/forget/) |
+
+### Read
+
+| Operation | Description | Link |
+|-----------|-------------|------|
+| **recall** | Retrieve memories using one or more recall strategies (similarity, temporal, causal, analogical) | [recall](/api/recall/) |
+| **prime** | Pre-load session context by entity, blending temporal and similarity recall | [prime](/api/prime/) |
+| **subscribe** | Stream relevant memories in real-time as new text arrives (bidirectional streaming) | [subscribe](/api/subscribe/) |
+
+### Consolidation
+
+| Operation | Description | Link |
+|-----------|-------------|------|
+| **reflect_policy** | Configure automatic background reflection triggers | [reflect_policy](/api/reflect-policy/) |
+| **reflect** | Manually trigger the reflection pipeline to consolidate memories into insights | [reflect](/api/reflect/) |
+| **insights** | Query consolidated knowledge produced by the reflection pipeline | [insights](/api/insights/) |
+
+## Reference
+
+- [Protobuf Schema](/api/protobuf-schema/) — Complete gRPC service definitions
+- [REST Endpoints](/api/rest-endpoints/) — Full HTTP API reference
+- [Error Codes](/api/error-codes/) — gRPC status codes, HTTP status codes, and HEBBS error taxonomy

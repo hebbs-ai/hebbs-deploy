@@ -1,0 +1,125 @@
+---
+title: "Docker"
+description: "Run HEBBS in Docker with docker-compose."
+---
+
+HEBBS publishes official Docker images to GitHub Container Registry. Each image contains the statically-linked HEBBS server binary and the default embedding model.
+
+## Quick Start
+
+```bash
+docker run -d \
+  --name hebbs \
+  -p 50051:50051 \
+  -p 9090:9090 \
+  -v hebbs-data:/data \
+  ghcr.io/hebbs-ai/hebbs:latest
+```
+
+This starts HEBBS with:
+- gRPC server on port 50051
+- Prometheus metrics on port 9090
+- Data persisted in the `hebbs-data` Docker volume
+
+## Docker Compose
+
+For production-like setups, use docker-compose to manage HEBBS alongside monitoring:
+
+```yaml
+version: "3.9"
+services:
+  hebbs:
+    image: ghcr.io/hebbs-ai/hebbs:latest
+    ports:
+      - "50051:50051"
+      - "9090:9090"
+    volumes:
+      - hebbs-data:/data
+      - ./config.toml:/etc/hebbs/config.toml:ro
+    environment:
+      - HEBBS_CONFIG=/etc/hebbs/config.toml
+      - HEBBS_LOG_LEVEL=info
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "hebbs-cli", "status", "--address", "localhost:50051"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  hebbs-data:
+```
+
+## Configuration
+
+Mount a custom configuration file:
+
+```bash
+docker run -d \
+  -v ./config.toml:/etc/hebbs/config.toml:ro \
+  -e HEBBS_CONFIG=/etc/hebbs/config.toml \
+  ghcr.io/hebbs-ai/hebbs:latest
+```
+
+Environment variables override config file values. Common overrides:
+
+| Variable | Description | Default |
+|---|---|---|
+| `HEBBS_CONFIG` | Path to config file | `/etc/hebbs/config.toml` |
+| `HEBBS_LOG_LEVEL` | Log level (`trace`, `debug`, `info`, `warn`, `error`) | `info` |
+| `HEBBS_DATA_DIR` | Data directory | `/data` |
+| `HEBBS_GRPC_PORT` | gRPC listen port | `50051` |
+| `HEBBS_METRICS_PORT` | Prometheus metrics port | `9090` |
+
+## Volumes and Data Persistence
+
+HEBBS stores all data (RocksDB, HNSW index, WAL) in a single directory. **Always mount a volume or bind mount to `/data`** to survive container restarts.
+
+```bash
+# Named volume (recommended)
+-v hebbs-data:/data
+
+# Bind mount to host directory
+-v /var/lib/hebbs:/data
+```
+
+## Networking
+
+### Bridge Network (default)
+
+Other containers on the same bridge network can reach HEBBS at `hebbs:50051`:
+
+```yaml
+services:
+  my-agent:
+    environment:
+      - HEBBS_ADDRESS=hebbs:50051
+    depends_on:
+      - hebbs
+```
+
+### Host Network
+
+For maximum network performance, use host networking:
+
+```bash
+docker run -d --network host ghcr.io/hebbs-ai/hebbs:latest
+```
+
+## Image Tags
+
+| Tag | Description |
+|---|---|
+| `latest` | Latest stable release |
+| `0.1.0` | Specific version |
+| `0.1` | Latest patch for minor version |
+| `edge` | Latest commit on main (unstable) |
+
+## Resource Recommendations
+
+| Workload | CPU | Memory | Disk |
+|---|---|---|---|
+| Development | 1 core | 512 MB | 1 GB |
+| Small (< 100K memories) | 2 cores | 2 GB | 10 GB |
+| Medium (< 1M memories) | 4 cores | 8 GB | 50 GB |
+| Large (< 10M memories) | 8 cores | 32 GB | 200 GB |

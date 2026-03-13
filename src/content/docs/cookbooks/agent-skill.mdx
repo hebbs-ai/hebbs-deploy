@@ -1,0 +1,99 @@
+---
+title: Agent Skill Integration
+description: How to use the HEBBS skill with any AI agent framework.
+---
+
+## Overview
+
+HEBBS ships a universal **SKILL.md** file that teaches any AI agent how to use HEBBS as a cognitive memory backend. The skill works with OpenClaw, Cursor, Claude Code, Codex, or any agent that can run shell commands.
+
+The agent uses the `hebbs` CLI directly — no plugin, SDK, or custom integration needed.
+
+## Installation
+
+1. Install the HEBBS CLI: `cargo install hebbs-cli`
+2. Start the HEBBS server: `hebbs-server` (default port 50051 for gRPC, 6381 for REST)
+3. Copy `hebbs/skills/hebbs/SKILL.md` into your agent's skill directory
+
+For OpenClaw:
+```bash
+cp hebbs/skills/hebbs/SKILL.md ~/.openclaw/skills/hebbs/SKILL.md
+openclaw skills list  # verify it appears
+```
+
+## How It Works
+
+The skill teaches the agent six core operations:
+
+| Operation | Purpose | When to use |
+|---|---|---|
+| `remember` | Store a memory | User shares a fact, preference, decision |
+| `recall` | Retrieve relevant memories | Before answering questions |
+| `reflect-prepare` + `reflect-commit` | Consolidate memories into insights | After 20+ new memories accumulate |
+| `insights` | Retrieve consolidated knowledge | Before recall, for distilled answers |
+| `forget` | Remove outdated memories | User corrects or retracts information |
+| `prime` | Load entity context | Start of a conversation |
+
+## Agent-Driven Reflection
+
+The two-step reflect flow is the key innovation for agent integration. Unlike server-side reflect (which requires LLM API keys on the server), agent-driven reflect uses the agent's own LLM:
+
+### Step 1: Prepare
+
+```bash
+hebbs-cli reflect-prepare --entity-id user_prefs --format json
+```
+
+HEBBS clusters the memories and returns:
+- **Memories** — full content of each memory in every cluster (id, content, importance, entity, timestamp) so the agent can reason about them directly
+- **Proposal prompts** — pre-built system/user prompts ready to send to any LLM for insight generation
+- **Memory IDs** — source memory IDs per cluster (hex-encoded)
+- **Validation context** — existing insights and source data for cross-checking
+- **Session ID** — handle for the commit step
+
+### Step 2: Agent reasons
+
+The agent sends the proposal prompts to its LLM (which could be OpenAI, Anthropic, a local model, or the agent itself). The LLM proposes insights. The agent optionally validates them using the validation context.
+
+### Step 3: Commit
+
+```bash
+hebbs-cli reflect-commit \
+  --session-id "01JQXYZ..." \
+  --insights '[{"content":"...","confidence":0.9,"source_memory_ids":["..."],"tags":["..."]}]'
+```
+
+HEBBS embeds, indexes, and stores the insights. No LLM is called by HEBBS.
+
+## Example: OpenClaw Agent Loop
+
+A typical agent conversation flow with HEBBS:
+
+1. **User opens chat** → Agent runs `hebbs-cli prime <entity>` to load context
+2. **User sends message** → Agent runs `hebbs-cli recall "<message>" --format json` to find relevant memories
+3. **Agent responds** using recalled context
+4. **After response** → Agent runs `hebbs-cli remember "<key fact from conversation>" --importance 0.7 --entity-id <entity>`
+5. **Periodically** → Agent checks memory count and runs the two-step reflect flow
+6. **Before deep questions** → Agent runs `hebbs-cli insights --entity-id <entity>` to check consolidated knowledge
+
+## Configuration
+
+The agent connects to the HEBBS server at `localhost:50051` by default. Override with:
+
+```bash
+hebbs-cli --endpoint myhost:50051 recall "query"
+```
+
+For authenticated deployments, set the API key:
+
+```bash
+hebbs-cli --api-key $HEBBS_API_KEY recall "query"
+```
+
+## Tips
+
+- Always use `--format json` when the agent parses output
+- Set importance based on content type: 0.9 for corrections, 0.8 for preferences, 0.5 for observations, 0.3 for transient context
+- Use entity IDs to scope memories per user, project, or domain
+- Reflect sessions expire after 10 minutes — don't delay between prepare and commit
+- Check insights before raw recall — insights are higher-quality, distilled knowledge

@@ -1,0 +1,73 @@
+---
+title: "Deployment Overview"
+description: "Deploy HEBBS as a standalone server, in Docker, or on Kubernetes."
+---
+
+HEBBS is distributed as a single statically-linked binary with embedded RocksDB. There are no external database dependencies — all storage, indexing, and embedding happen inside the process.
+
+## Deployment Modes
+
+### Standalone Binary
+
+Run HEBBS directly on a host machine. Best for development, testing, and small-scale deployments.
+
+```bash
+hebbs-server --config config.toml
+```
+
+The server listens on gRPC (default port 50051) and exposes a Prometheus metrics endpoint (default port 9090).
+
+### Docker
+
+Run HEBBS in a container with persistent volume mounts for data durability. Suitable for single-host production deployments.
+
+```bash
+docker run -d \
+  -p 50051:50051 \
+  -p 9090:9090 \
+  -v hebbs-data:/data \
+  ghcr.io/hebbs-ai/hebbs:latest
+```
+
+See [Docker](/deployment/docker/) for full configuration.
+
+### Kubernetes (Helm)
+
+Deploy on Kubernetes with the official Helm chart. Handles persistence, health checks, and scaling configuration.
+
+```bash
+helm install hebbs oci://ghcr.io/hebbs-ai/charts/hebbs
+```
+
+See [Kubernetes](/deployment/kubernetes/) for the full values reference.
+
+## Choosing the Right Mode
+
+| Mode | When to use |
+|---|---|
+| Standalone | Development, CI, single-tenant demos |
+| Docker | Single-host production, docker-compose stacks |
+| Kubernetes | Multi-tenant production, auto-scaling, high availability |
+
+## Configuration
+
+HEBBS is configured via a TOML file. Key sections:
+
+| Section | Purpose |
+|---|---|
+| `[server]` | Listen address, TLS, authentication |
+| `[storage]` | Data directory, RocksDB tuning |
+| `[embedding]` | Model path, batch size, hardware acceleration |
+| `[index]` | HNSW parameters, temporal index settings |
+| `[reflect]` | LLM provider, reflection pipeline configuration |
+| `[metrics]` | Prometheus endpoint configuration |
+
+See the full [configuration reference](https://github.com/hebbs-ai/hebbs/blob/main/config.example.toml) for all options.
+
+## Next Steps
+
+- [Docker](/deployment/docker/) — container deployment guide
+- [Kubernetes](/deployment/kubernetes/) — Helm chart deployment
+- [Terraform (AWS)](/deployment/terraform-aws/) — infrastructure-as-code for AWS
+- [Monitoring](/deployment/monitoring/) — Prometheus and Grafana setup
+- [Production Checklist](/deployment/production-checklist/) — go-live checklist

@@ -1,0 +1,62 @@
+---
+title: "Python SDK Installation"
+description: "Install the HEBBS Python SDK."
+---
+
+## Requirements
+
+- **Python 3.10 or later** — the SDK uses `match` statements and modern typing features.
+- A running HEBBS server to connect to (see [Deployment](/deployment/overview/)).
+
+## Install with pip
+
+```bash
+pip install hebbs
+```
+
+To pin to a specific version:
+
+```bash
+pip install hebbs==0.1.0
+```
+
+## Install with Poetry
+
+```bash
+poetry add hebbs
+```
+
+## Install with uv
+
+```bash
+uv add hebbs
+```
+
+## Verify Installation
+
+```bash
+python -c "import hebbs; print(hebbs.__version__)"
+```
+
+You should see the installed version printed, e.g. `0.1.0`.
+
+## Optional Dependencies
+
+The base package includes everything needed to connect to a HEBBS server. Optional extras are available for specific use cases:
+
+| Extra | Install Command | Purpose |
+|---|---|---|
+| `dev` | `pip install hebbs[dev]` | Development tools (pytest, mypy, ruff) |
+
+## Supported Platforms
+
+The `hebbs` package is a pure-Python wrapper over gRPC and supports all platforms where `grpcio` is available:
+
+- Linux (x86_64, aarch64)
+- macOS (x86_64, Apple Silicon)
+- Windows (x86_64)
+
+## Next Steps
+
+- [Quick Start](/python/quickstart/) — connect to HEBBS and run your first operations
+- [Client Reference](/python/client-reference/) — full API documentation

@@ -1,0 +1,204 @@
+---
+title: recall
+description: Retrieve memories using one or more recall strategies.
+---
+
+## Overview
+
+The `recall` operation retrieves memories by cue, applying one or more strategies. Strategies can be combined: similarity search finds semantically related content; temporal finds recent or time-ordered memories; causal traverses graph edges; analogical finds structurally similar patterns.
+
+## API Access
+
+| Protocol | Service/Method | Endpoint |
+|----------|----------------|----------|
+| **gRPC** | `MemoryService.Recall` | — |
+| **REST** | POST | `/v1/recall` |
+
+## Request Fields
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `cue` | string | Yes | — | Query text or context used to drive retrieval. |
+| `strategies` | array | Yes | — | One or more strategy configs: `similarity`, `temporal`, `causal`, `analogical`. |
+| `top_k` | int | No | `10` | Maximum number of results per strategy. |
+| `entity_id` | string | No | `None` | Scope recall to this entity. |
+| `scoring_weights` | object | No | `0.5/0.2/0.2/0.1` | Override composite scoring weights. Fields: `w_relevance`, `w_recency`, `w_importance`, `w_reinforcement`. |
+| `cue_context` | string | No | `None` | Additional context to disambiguate the cue. Appended to the cue during embedding but not stored. |
+| `ef_search` | int | No | `50` | HNSW search quality parameter (similarity strategy). Higher values increase accuracy at the cost of latency. |
+| `time_range` | object | No | `None` (unbounded) | Temporal bounds as `{ "start": <timestamp>, "end": <timestamp> }`. When omitted, temporal recall returns all memories newest-first up to `top_k`. |
+| `seed_memory_id` | string | No | `None` (auto-detect) | Starting memory ID for causal graph traversal. When omitted, the engine finds the best seed by embedding the cue. |
+| `max_depth` | int | No | `5` (bounded at 10) | Maximum hops for causal graph traversal. |
+| `edge_types` | array | No | `None` (all types) | Filter causal traversal to specific edge types (e.g. `["CausedBy"]`). |
+| `analogical_alpha` | float | No | `0.5` | Balance between embedding similarity and structural similarity for analogical recall. `0.0` = pure structural, `1.0` = pure embedding. |
+| `tenant_id` | string | No | Derived from API key or `"default"` | Tenant scope for data isolation. Normally derived from the API key by the server. Override only when running without authentication or for cross-tenant administrative operations. |
+
+> **Note:** For REST, `tenant_id` is derived from the `Authorization` header — not passed in the request body. For gRPC, it can be set explicitly in the request message but is overridden by the API key's tenant when auth is enabled.
+
+Only `cue` and `strategies` are required. All other fields use smart defaults suitable for most workloads.
+
+**`scoring_weights` example:**
+
+```json
+{
+  "w_relevance": 1.0,
+  "w_recency": 0.0,
+  "w_importance": 0.0,
+  "w_reinforcement": 0.0
+}
+```
+
+This ranks results purely by semantic similarity. See [Composite Scoring](/concepts/recall-strategies/#composite-scoring) for the full formula and tuning guide.
+
+## Response
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `results` | array | Each result contains `memory`, `score` (composite), `relevance`, and `strategy_details`. |
+| `results[].score` | float | Composite score: weighted blend of relevance, recency, importance, and reinforcement. |
+| `results[].relevance` | float | Raw cosine similarity between the query embedding and the memory embedding (0.0 – 1.0). |
+| `results[].strategy_details` | array | Per-strategy metadata. For similarity: `relevance` (raw cosine similarity) and `distance`. For temporal: `timestamp` and `rank`. For causal: `depth`, `edge_type`, `seed_id`. For analogical: `embedding_similarity` and `structural_similarity`. |
+| `strategy_errors` | array | Optional errors from individual strategies (e.g., causal graph empty). |
+
+## REST Examples
+
+All examples assume the `HEBBS_API_KEY` environment variable is set. See [Authentication](/api/rest-endpoints/#authentication).
+
+### Default recall
+
+```bash
+curl -s -X POST http://localhost:6381/v1/recall \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $HEBBS_API_KEY" \
+  -d '{"cue": "Acme meeting", "strategies": ["similarity"]}' | jq .
+```
+
+### Pure relevance scoring
+
+```bash
+curl -s -X POST http://localhost:6381/v1/recall \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $HEBBS_API_KEY" \
+  -d '{
+    "cue": "Acme meeting",
+    "strategies": ["similarity"],
+    "scoring_weights": {
+      "w_relevance": 1.0,
+      "w_recency": 0.0,
+      "w_importance": 0.0,
+      "w_reinforcement": 0.0
+    }
+  }' | jq .
+```
+
+### Recency-biased recall
+
+```bash
+curl -s -X POST http://localhost:6381/v1/recall \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $HEBBS_API_KEY" \
+  -d '{
+    "cue": "latest updates",
+    "strategies": ["similarity"],
+    "scoring_weights": {
+      "w_relevance": 0.2,
+      "w_recency": 0.8,
+      "w_importance": 0.0,
+      "w_reinforcement": 0.0
+    }
+  }' | jq .
+```
+
+## Strategy Configuration
+
+Each strategy accepts optional tuning parameters. The defaults are designed for broad, accurate recall -- most users will never need to change them.
+
+### similarity
+
+Embedding-based semantic search using the HNSW index.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `ef_search` | `50` | Number of candidates HNSW evaluates. Higher = more accurate, slower. Good accuracy/latency tradeoff for most datasets. |
+
+### temporal
+
+Time-ordered retrieval. Returns memories newest-first by default.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `time_range` | `None` (unbounded) | `{ "start": <timestamp>, "end": <timestamp> }`. When omitted, returns all memories newest-first up to `top_k`. |
+
+### causal
+
+Graph traversal from a seed memory following causal edges.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `seed_memory_id` | `None` (auto-detect) | Starting node for traversal. When omitted, the engine embeds the cue and picks the closest memory as the seed. |
+| `max_depth` | `5` (bounded at 10) | Maximum hops from the seed. |
+| `edge_types` | `None` (all types) | Restrict traversal to specific edge types (e.g. `["CausedBy", "FollowedBy"]`). |
+
+### analogical
+
+Structural pattern matching across domains.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `analogical_alpha` | `0.5` | Blending weight: `0.0` = pure structural similarity, `1.0` = pure embedding similarity. The default gives equal weight to both. |
+
+---
+
+## Advanced Tuning Examples
+
+These examples show per-strategy tuning parameters. For basic usage, see [Default recall](#default-recall) above.
+
+### Causal recall with a specific seed
+
+Start the graph walk from a known memory instead of auto-detecting:
+
+```bash
+curl -s -X POST http://localhost:6381/v1/recall \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $HEBBS_API_KEY" \
+  -d '{
+    "cue": "What led to the pricing pushback?",
+    "strategies": ["causal"],
+    "seed_memory_id": "01KK3S0KXYE22EFF489YRTH559",
+    "max_depth": 8,
+    "edge_types": ["CausedBy"]
+  }' | jq .
+```
+
+### Analogical recall with custom alpha
+
+Favor structural similarity over embedding similarity:
+
+```bash
+curl -s -X POST http://localhost:6381/v1/recall \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $HEBBS_API_KEY" \
+  -d '{
+    "cue": "Have we seen similar pricing dynamics?",
+    "strategies": ["analogical"],
+    "analogical_alpha": 0.2
+  }' | jq .
+```
+
+### Temporal recall with a time range
+
+Restrict to a specific window:
+
+```bash
+curl -s -X POST http://localhost:6381/v1/recall \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $HEBBS_API_KEY" \
+  -d '{
+    "cue": "customer interactions",
+    "strategies": ["temporal"],
+    "entity_id": "customer-42",
+    "time_range": {
+      "start": 1709251200000000,
+      "end": 1711929600000000
+    }
+  }' | jq .
+```

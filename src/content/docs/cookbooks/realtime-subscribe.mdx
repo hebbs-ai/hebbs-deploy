@@ -1,0 +1,159 @@
+---
+title: "Real-time Subscribe"
+description: "Surface relevant memories in real-time during conversations."
+---
+
+This cookbook demonstrates HEBBS's subscribe feature, which surfaces relevant memories in real-time as new text is fed into a conversation stream.
+
+## Seed Memories
+
+First, populate the memory store with context that the subscription can match against:
+
+```python
+import asyncio
+from hebbs import HebbsClient, MemoryKind
+
+async def seed_memories(client, entity):
+    memories = [
+        "Customer's contract renews on April 15th",
+        "Customer complained about slow API response times last month",
+        "Customer is evaluating competitor product DataCore",
+        "Customer's team size grew from 10 to 25 engineers this quarter",
+        "Customer requested SOC2 compliance documentation",
+        "Customer's CTO prefers technical deep-dives over slide decks",
+    ]
+
+    for content in memories:
+        await client.remember(
+            content=content,
+            entity=entity,
+            kind=MemoryKind.SEMANTIC,
+        )
+
+    print(f"Seeded {len(memories)} memories")
+```
+
+## Open a Subscription
+
+```python
+async def main():
+    async with HebbsClient.connect("localhost:50051") as client:
+        entity = "customer-acme"
+
+        # Seed memories
+        await seed_memories(client, entity)
+
+        # Open subscription
+        subscription = await client.subscribe(
+            entity=entity,
+            strategy="similarity",
+            top_k=3,
+            threshold=0.65,
+        )
+
+        print("Subscription active. Feeding conversation...")
+```
+
+## Feed Text and Receive Pushes
+
+Simulate a conversation by feeding utterances and observing which memories surface:
+
+```python
+async def conversation_with_memory(client, entity):
+    async with await client.subscribe(
+        entity=entity,
+        strategy="similarity",
+        top_k=3,
+        threshold=0.65,
+    ) as sub:
+
+        utterances = [
+            "Hi, I wanted to discuss our contract terms",
+            "We've been having performance issues with the API",
+            "We're also looking at other vendors in the space",
+            "Our engineering team has been growing rapidly",
+        ]
+
+        for utterance in utterances:
+            print(f"\n>>> {utterance}")
+
+            # Feed the utterance
+            await sub.feed(utterance)
+
+            # Receive the push (with timeout)
+            push = await sub.receive(timeout=2.0)
+
+            if push is not None and push.memories:
+                print(f"  Surfaced {len(push.memories)} memories:")
+                for r in push.memories:
+                    print(f"    [{r.score:.3f}] {r.memory.content}")
+            else:
+                print("  No relevant memories surfaced")
+```
+
+## Async Listener Pattern
+
+For production agents, run the listener as a background task:
+
+```python
+async def agent_with_live_memory(client, entity):
+    memory_context = []
+
+    async with await client.subscribe(
+        entity=entity,
+        strategy="similarity",
+        top_k=3,
+        threshold=0.7,
+    ) as sub:
+
+        async def memory_listener():
+            async for push in sub:
+                for r in push.memories:
+                    memory_context.append(r.memory.content)
+                    print(f"  [MEMORY] {r.memory.content}")
+
+        # Start listener in background
+        listener = asyncio.create_task(memory_listener())
+
+        # Simulate conversation turns
+        turns = [
+            "Let's talk about the upcoming renewal",
+            "Any concerns about our security posture?",
+        ]
+
+        for turn in turns:
+            await sub.feed(turn)
+            await asyncio.sleep(0.5)  # Allow pushes to arrive
+
+            # At this point, memory_context contains any surfaced memories
+            # Use them to augment the LLM prompt
+            print(f"Current context has {len(memory_context)} memories")
+
+        listener.cancel()
+```
+
+## Lifecycle Management
+
+```python
+# Subscription respects the client context manager
+async with HebbsClient.connect("localhost:50051") as client:
+    sub = await client.subscribe(entity="demo", top_k=3)
+
+    # Use the subscription
+    await sub.feed("some text")
+    push = await sub.receive(timeout=1.0)
+
+    # Explicitly close when done
+    await sub.close()
+
+# Or use the subscription's own context manager
+async with await client.subscribe(entity="demo", top_k=3) as sub:
+    await sub.feed("some text")
+    # Automatically closed at end of block
+```
+
+## Performance Tips
+
+- **Debounce feeds** — don't feed every keystroke. Wait for sentence boundaries or pauses in speech.
+- **Tune threshold** — start with 0.7 and adjust. Lower thresholds produce more pushes, higher thresholds are more selective.
+- **Limit top_k** — keep top_k small (2–5) for real-time use. Large result sets add latency.

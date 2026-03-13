@@ -1,0 +1,56 @@
+---
+title: "Engineering Principles"
+description: "The 12 non-negotiable engineering principles governing HEBBS development."
+---
+
+Every code change, architecture decision, and design trade-off in HEBBS must comply with these 12 engineering principles. They are listed in priority order — when two principles conflict, the higher-priority principle wins.
+
+## The 12 Principles
+
+### 1. Hot Path Sanctity
+
+No network calls, no unbounded computation, no locks on the read path. The recall path from gRPC request to response must be pure computation against local data structures. Every microsecond on the hot path is a contract with the user.
+
+### 2. Crash Safety
+
+If `kill -9` hits between any two instructions, the database recovers to a consistent state. All multi-index updates use atomic `WriteBatch`. WAL ensures durability. No "almost consistent" states.
+
+### 3. Single Binary
+
+HEBBS is one statically-linked binary with embedded RocksDB. No external database dependencies, no sidecar processes, no mandatory infrastructure. `./hebbs-server --config config.toml` and you're running.
+
+### 4. Bounded Everything
+
+Every buffer, queue, traversal, and collection has a configurable upper bound. No unbounded growth. No `Vec` that grows without limit. BFS traversal has max depth. Batch sizes have ceilings. If it can grow, it has a cap.
+
+### 5. Entity Isolation
+
+Memories are partitioned by entity. Queries against one entity never see memories from another. Isolation is structural (key prefix), not filtered post-query. A bug in entity A cannot corrupt entity B's data.
+
+### 6. Lineage
+
+Every insight tracks which source memories it was derived from. Every revision tracks its predecessor. Every edge has provenance. If you can't trace how a piece of knowledge was created, it has no business being in the system.
+
+### 7. Cognitive Fidelity
+
+The four recall strategies (similarity, temporal, causal, analogical) mirror how human memory works. Similarity is not enough. Time matters. Causality matters. Analogy across domains matters. Recall must be multi-modal.
+
+### 8. Background Reflection
+
+LLM calls belong exclusively in the reflection pipeline, running in the background on a dedicated thread pool. Never on the hot path. Never blocking a user operation. The cost and latency of LLM inference must be invisible to the synchronous API.
+
+### 9. Measure Everything
+
+Every operation emits latency histograms. Every resource has a gauge. Every error has a counter. If you can't measure it, you can't manage it. Prometheus metrics are a first-class output of the system.
+
+### 10. Edge-First Design
+
+HEBBS must run on a laptop, a Raspberry Pi, or a single cloud VM — not just a Kubernetes cluster. The default configuration is optimized for small deployments. Scale up is additive, not mandatory.
+
+### 11. Correctness First, Then Performance
+
+Write the correct implementation first. Add Criterion benchmarks. Then optimize with profiling data. No speculative optimization. No premature complexity. Benchmark-proven performance only.
+
+### 12. Security by Default
+
+Validate all inputs at the boundary before they touch engine internals. Tenant isolation is structural. Sensitive data paths use `zeroize`. TLS is documented and encouraged. Auth is built-in. Security is not an afterthought.

@@ -1,0 +1,87 @@
+---
+title: HEBBS Documentation
+description: The cognitive memory engine for AI agents. Four recall strategies. Native consolidation. Drop-in agent skill.
+template: splash
+hero:
+  tagline: The memory engine for AI agents. Four recall strategies. Native consolidation. Automatic decay. Drop-in agent skill.
+  actions:
+    - text: Quickstart (5 min)
+      link: /getting-started/quickstart/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/hebbs-ai/hebbs
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+<CardGrid>
+  <Card title="Getting Started" icon="rocket">
+    Install HEBBS, start the server, and store your first memory in under 5
+    minutes.
+
+    [Get started →](/getting-started/quickstart/)
+
+  </Card>
+
+  <Card title="Python SDK" icon="seti:python">
+    Async Python client with a clean, Pythonic API. No protobuf in the public
+    surface.
+
+    [Python docs →](/python/overview/)
+
+  </Card>
+
+  <Card title="TypeScript SDK" icon="seti:typescript">
+    Async Node.js gRPC client with full type safety. `npm install @hebbs/sdk`.
+
+    [TypeScript docs →](/typescript/overview/)
+
+  </Card>
+
+  <Card title="API Reference" icon="open-book">
+    9 operations across 3 groups: Write, Read, and Consolidation. gRPC and
+    REST.
+
+    [API reference →](/api/overview/)
+
+  </Card>
+
+  <Card title="Agent Skill" icon="puzzle">
+    Drop-in SKILL.md for any compatible agent. No SDK integration required.
+
+    [Install the skill →](/cookbooks/agent-skill/)
+
+  </Card>
+
+  <Card title="Cookbooks" icon="puzzle">
+    Production-ready tutorials: sales agents, support bots, GDPR compliance,
+    real-time memory surfacing.
+
+    [Browse cookbooks →](/cookbooks/)
+
+  </Card>
+</CardGrid>
+
+## Why HEBBS?
+
+Before HEBBS, agent memory was similarity search - embed a question, find the nearest vectors, hope for the best. There were vector databases, memory wrappers, and knowledge graphs, but nothing that gave agents temporal reasoning, causal chains, analogical transfer, consolidation, and decay as a single consumable primitive.
+
+HEBBS is the cognitive memory engine that didn't exist until now:
+
+- **Four recall strategies** - similarity, temporal, causal, and analogical - each backed by a purpose-built index. 91% precision on temporal queries where similarity-only gets 23%. 78% on causal where similarity-only gets 15%.
+- **Native consolidation** - the reflection pipeline clusters raw episodes, proposes insights, validates them, and stores consolidated knowledge with full lineage back to source memories. Your agent learns, not just retrieves.
+- **Automatic decay and reinforcement** - memories fade over time unless reinforced by access. Signal-to-noise improves naturally. No manual pruning.
+- **Revision with lineage** - `revise()` replaces beliefs while preserving the predecessor chain. No contradictory facts coexisting.
+- **Drop-in agent skill** - install the SKILL.md file and any compatible agent gets cognitive memory without SDK integration or glue code.
+- **One binary, zero external dependencies** - and it does all of this in under 10ms at 10 million memories.
+
+## Core Operations
+
+| Group | Operations | Purpose |
+|-------|-----------|---------|
+| **Write** | `remember`, `revise`, `forget` | Store, update, and prune memories |
+| **Read** | `recall`, `prime`, `subscribe` | Retrieve context via multiple strategies |
+| **Consolidate** | `reflect_policy`, `reflect`, `insights` | Background learning and knowledge synthesis |

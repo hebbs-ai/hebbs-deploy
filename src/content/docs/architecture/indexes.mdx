@@ -1,0 +1,134 @@
+---
+title: "Index Layer"
+description: "Three index types: HNSW vector, temporal B-tree, and graph adjacency."
+---
+
+HEBBS maintains three index types that together enable four recall strategies. All indexes are updated atomically via RocksDB `WriteBatch` to ensure crash consistency.
+
+## HNSW Vector Index
+
+The HNSW (Hierarchical Navigable Small World) index provides approximate nearest neighbor search for similarity-based recall.
+
+### How It Works
+
+HNSW builds a multi-layer proximity graph where each node represents a memory's embedding vector. Queries start at the top layer and greedily descend through layers, narrowing the candidate set at each level.
+
+### Complexity
+
+| Operation | Complexity |
+|---|---|
+| Insert | `O(log n * M)` where M is the max connections per node |
+| Query | `O(log n * ef_search)` where ef_search is the search beam width |
+| Memory | `O(n * M * d)` where d is dimensionality (384) |
+
+### Configuration
+
+```toml
+[index.hnsw]
+m = 16                  # Max connections per node per layer
+ef_construction = 200   # Beam width during index building
+ef_search = 100         # Beam width during queries
+```
+
+### Tuning Trade-offs
+
+| Parameter | Higher Value → | Lower Value → |
+|---|---|---|
+| `m` | Better recall, more memory | Less memory, slightly worse recall |
+| `ef_construction` | Better graph quality, slower inserts | Faster inserts, lower recall |
+| `ef_search` | Better recall accuracy, slower queries | Faster queries, lower recall |
+
+### Maps To
+
+- **Similarity recall** — direct HNSW query with the query embedding.
+- **Analogical recall** — HNSW query with cross-entity scoring.
+
+---
+
+## Temporal B-tree Index
+
+The temporal index is a B-tree ordered by timestamp, enabling efficient time-range queries for temporal recall.
+
+### How It Works
+
+Each memory is indexed by its creation timestamp. The B-tree supports:
+
+- **Range queries** — "memories between time A and time B"
+- **Recency queries** — "most recent N memories"
+- **Proximity queries** — "memories closest to time T"
+
+### Complexity
+
+| Operation | Complexity |
+|---|---|
+| Insert | `O(log n)` |
+| Range query | `O(log n + k)` where k is the number of results |
+| Point query | `O(log n)` |
+
+### Key Format
+
+```
+{entity}:{timestamp_big_endian}:{memory_id}
+```
+
+The big-endian timestamp encoding ensures that RocksDB's lexicographic iteration returns memories in chronological order.
+
+### Maps To
+
+- **Temporal recall** — range scan around the query's temporal context.
+
+---
+
+## Graph Adjacency Index
+
+The graph index stores directed edges between memories, enabling causal traversal and relationship queries.
+
+### How It Works
+
+Edges are stored in an adjacency list format, keyed by source memory and edge type. This supports:
+
+- **Forward traversal** — "what did this memory cause?"
+- **Backward traversal** — "what caused this memory?"
+- **Type-filtered queries** — "all CausedBy edges from memory X"
+- **Bounded BFS** — breadth-first search with configurable depth limit
+
+### Complexity
+
+| Operation | Complexity |
+|---|---|
+| Insert edge | `O(1)` (append to adjacency list) |
+| Get edges from node | `O(k)` where k is the out-degree |
+| BFS traversal | `O(b^d)` where b is branching factor, d is depth (both bounded) |
+
+### Edge Types
+
+| Type | Semantics |
+|---|---|
+| `RelatedTo` | General semantic relationship |
+| `CausedBy` | Causal chain (A caused B) |
+| `PrecededBy` | Temporal ordering |
+| `InsightFrom` | Insight derived from source memories |
+| `RevisedFrom` | Revision lineage |
+
+### Maps To
+
+- **Causal recall** — BFS traversal following `CausedBy` edges.
+- **Analogical recall** (partial) — cross-entity edge patterns.
+
+---
+
+## Atomic Multi-Index Updates
+
+When a memory is stored, all three indexes must be updated consistently. HEBBS achieves this using RocksDB's `WriteBatch`:
+
+```
+WriteBatch:
+  PUT memories/cf    → serialized memory
+  PUT hnsw/cf        → HNSW neighbor list update
+  PUT temporal/cf    → timestamp index entry
+  PUT edges/cf       → edge entries (if provided)
+```
+
+The entire `WriteBatch` is committed atomically. If the process crashes mid-write, none of the updates are visible — the database recovers to the previous consistent state via WAL replay.
+
+This eliminates the class of bugs where one index is updated but another is not, which would cause phantom results or missing memories.

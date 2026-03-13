@@ -1,0 +1,69 @@
+---
+title: revise
+description: Update a memory's content, importance, or context while preserving history.
+---
+
+## Overview
+
+The `revise` operation updates an existing memory. Instead of overwriting in place, HEBBS creates a new Revision-kind memory that supersedes the original. The predecessor is retained for lineage but is no longer returned by default recall. This preserves audit trails and supports "what changed" queries.
+
+## API Access
+
+| Protocol | Service/Method | Endpoint |
+|----------|----------------|----------|
+| **gRPC** | `MemoryService.Revise` | — |
+| **REST** | PUT | `/v1/revise/:id` |
+
+## Request Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `memory_id` | string | Yes | ID of the memory to revise (passed as URL path parameter). |
+| `content` | string | No | New content. Omitted fields retain previous values. |
+| `importance` | float | No | New importance score (0.0–1.0). |
+| `context` | map | No | New or merged context. Behavior depends on `context_mode`. |
+| `context_mode` | string | No | `"merge"` (default) or `"replace"`. Controls how context is updated. |
+| `entity_id` | string | No | Entity scope for the memory. |
+| `tenant_id` | string | No | Tenant scope for data isolation. Normally derived from the API key by the server. Override only when running without authentication or for cross-tenant administrative operations. Default: derived from API key or `"default"`. |
+
+> **Note:** For REST, `tenant_id` is derived from the `Authorization` header — not passed in the request body. For gRPC, it can be set explicitly in the request message but is overridden by the API key's tenant when auth is enabled.
+
+## Predecessor Snapshot Semantics
+
+When you call `revise`, the system:
+
+1. Loads the current memory (predecessor).
+2. Applies the requested changes.
+3. Creates a new memory with `kind: Revision` and a `RevisedFrom` edge to the predecessor.
+4. Marks the predecessor as superseded (excluded from default recall).
+5. Returns the new memory as the canonical version.
+
+## Response
+
+Returns the updated `Memory` object (the new Revision), with `id`, `content`, `importance`, `context`, `edges` (including `RevisedFrom`), `created_at`, `updated_at`, and `kind: Revision`.
+
+## Examples
+
+### curl (REST)
+
+```bash
+curl -s -X PUT http://localhost:6381/v1/revise/01KK3S0KXYE22EFF489YRTH559 \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $HEBBS_API_KEY" \
+  -d '{
+    "content": "Met with the Acme Corp team about Q2 roadmap. They confirmed budget approval.",
+    "importance": 0.9
+  }' | jq .
+```
+
+### grpcurl (gRPC)
+
+```bash
+grpcurl -plaintext \
+  -H "authorization: Bearer $HEBBS_API_KEY" \
+  -d '{
+    "memory_id": "01KK3S0KXYE22EFF489YRTH559",
+    "content": "Met with the Acme Corp team about Q2 roadmap. They confirmed budget approval.",
+    "importance": 0.9
+  }' localhost:6380 hebbs.MemoryService/Revise
+```

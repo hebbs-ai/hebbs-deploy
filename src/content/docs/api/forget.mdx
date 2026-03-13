@@ -1,0 +1,69 @@
+---
+title: forget
+description: Delete memories by entity, by IDs, or by criteria for GDPR compliance.
+---
+
+## Overview
+
+The `forget` operation removes memories from HEBBS. It supports deletion by entity (all memories for a user), by specific memory IDs, or by criteria (e.g., time range, context filters). For GDPR and compliance, forgetting cascades to related data: edges, insights derived from forgotten episodes, and tombstones for audit.
+
+## API Access
+
+| Protocol | Service/Method | Endpoint |
+|----------|----------------|----------|
+| **gRPC** | `MemoryService.Forget` | — |
+| **REST** | POST | `/v1/forget` |
+
+## Request Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `entity_id` | string | No* | Forget all memories for this entity. *At least one filter required. |
+| `memory_ids` | array | No* | Forget specific memories by ID. |
+| `staleness_threshold_us` | int | No | Forget memories older than this (microseconds since epoch). |
+| `memory_kind` | string | No | Filter by kind: `"episode"`, `"insight"`, `"revision"`. |
+| `tenant_id` | string | No | Tenant scope for data isolation. Normally derived from the API key by the server. Override only when running without authentication or for cross-tenant administrative operations. Default: derived from API key or `"default"`. |
+
+> **Note:** For REST, `tenant_id` is derived from the `Authorization` header — not passed in the request body. For gRPC, it can be set explicitly in the request message but is overridden by the API key's tenant when auth is enabled.
+
+## Response
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `forgotten_count` | int | Number of memories directly forgotten. |
+
+## Examples
+
+### Forget by entity (REST)
+
+```bash
+curl -s -X POST http://localhost:6381/v1/forget \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $HEBBS_API_KEY" \
+  -d '{"entity_id": "user_42"}' | jq .
+```
+
+### Forget by memory IDs (REST)
+
+```bash
+curl -s -X POST http://localhost:6381/v1/forget \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $HEBBS_API_KEY" \
+  -d '{"memory_ids": ["01KK3S0KXYE22EFF489YRTH559"]}' | jq .
+```
+
+### grpcurl (gRPC)
+
+```bash
+grpcurl -plaintext \
+  -H "authorization: Bearer $HEBBS_API_KEY" \
+  -d '{"entity_id": "user_42"}' \
+  localhost:6380 hebbs.MemoryService/Forget
+```
+
+## GDPR Considerations
+
+- **Right to erasure**: Use `entity_id` to forget all data for a user.
+- **Partial deletion**: Use `memory_ids` for targeted removal (e.g., a single incorrect memory).
+- **Audit trail**: Tombstones record that a forget occurred; they do not retain content. Retention of tombstones is configurable.
+- **Cascade**: Insights derived from forgotten episodes are either forgotten or marked as orphaned, depending on policy.

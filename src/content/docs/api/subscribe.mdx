@@ -1,0 +1,83 @@
+---
+title: subscribe
+description: Stream relevant memories in real-time as new text arrives.
+---
+
+## Overview
+
+The `subscribe` operation streams relevant memories in real-time as new text arrives. It uses bidirectional gRPC streaming: the client sends text chunks (e.g., live transcription), and the server pushes memories that match the stream. This enables voice agents, live chat, and real-time assistants to surface context without polling.
+
+## API Access
+
+| Protocol | Service/Method | Endpoint |
+|----------|----------------|----------|
+| **gRPC** | `SubscribeService.Subscribe` | Bidirectional streaming |
+| **REST (SSE)** | POST | `/v1/subscribe` — open stream |
+| **REST** | POST | `/v1/subscribe/:id/feed` — feed text |
+| **REST** | DELETE | `/v1/subscribe/:id` — close stream |
+
+## Streaming Lifecycle
+
+### gRPC
+
+1. **Connect**: Client opens a bidirectional stream to `SubscribeService.Subscribe`.
+2. **Feed**: Client sends `SubscribePush` messages containing text chunks. Each chunk is processed for relevance against the entity's memories.
+3. **Push**: Server sends `SubscribePush` messages back with memories that exceed the confidence threshold.
+4. **CloseSubscription**: Client sends `CloseSubscription` when done. Server acknowledges and closes the stream.
+
+### REST (Server-Sent Events)
+
+REST uses three endpoints to approximate the bidirectional gRPC flow:
+
+1. **Open**: POST to `/v1/subscribe` with a JSON body. Returns an SSE stream with a `subscription_id` in the initial event.
+2. **Feed**: POST to `/v1/subscribe/:id/feed` with `{"text": "..."}` to send text chunks. Matching memories are pushed through the SSE stream.
+3. **Close**: DELETE to `/v1/subscribe/:id` to terminate the subscription.
+
+## Request Fields (Open)
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `entity_id` | string | No | Scope subscription to this entity's memories. |
+| `kind_filter` | array | No | Memory kinds to include: `"episode"`, `"insight"`, `"revision"`. |
+| `confidence_threshold` | float | No | Minimum relevance to push (default 0.5). |
+| `time_scope_us` | int | No | Only consider memories within this time window (microseconds). |
+| `tenant_id` | string | No | Tenant scope for data isolation. Normally derived from the API key by the server. Override only when running without authentication or for cross-tenant administrative operations. Default: derived from API key or `"default"`. |
+
+> **Note:** For REST, `tenant_id` is derived from the `Authorization` header — not passed in the request body. For gRPC, it can be set explicitly in the request message but is overridden by the API key's tenant when auth is enabled.
+
+## Confidence Threshold
+
+Only memories with relevance above the confidence threshold are pushed. Lower thresholds increase recall but may add noise; higher thresholds reduce noise but may miss relevant context.
+
+## Examples
+
+### REST (curl + SSE)
+
+Open a subscription (returns an SSE stream):
+
+```bash
+curl -s -N -X POST http://localhost:6381/v1/subscribe \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $HEBBS_API_KEY" \
+  -d '{"entity_id": "user_42", "confidence_threshold": 0.6}'
+```
+
+Feed text to the subscription (in a second terminal):
+
+```bash
+curl -s -X POST http://localhost:6381/v1/subscribe/1/feed \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $HEBBS_API_KEY" \
+  -d '{"text": "The customer asked about dark mode preferences."}'
+```
+
+Close the subscription:
+
+```bash
+curl -s -X DELETE http://localhost:6381/v1/subscribe/1 \
+  -H "Authorization: Bearer $HEBBS_API_KEY"
+```
+
+## SubscribePush Messages
+
+Each push contains: `memory`, `score`, `strategy` (e.g., similarity), and optional `chunk_offset` for correlating with the feed stream.

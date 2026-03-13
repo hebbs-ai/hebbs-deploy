@@ -1,0 +1,207 @@
+---
+title: "Monitoring Stack"
+description: "HEBBS + Prometheus + Grafana with docker-compose."
+---
+
+This cookbook sets up a complete monitoring stack for HEBBS using docker-compose, with Prometheus for metrics collection and Grafana for visualization.
+
+## docker-compose Setup
+
+Create a `docker-compose.yml` with HEBBS, Prometheus, and Grafana:
+
+```yaml
+version: "3.9"
+
+services:
+  hebbs:
+    image: ghcr.io/hebbs-ai/hebbs:latest
+    ports:
+      - "50051:50051"
+      - "9090:9090"
+    volumes:
+      - hebbs-data:/data
+    environment:
+      - HEBBS_LOG_LEVEL=info
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "hebbs-cli", "status", "--address", "localhost:50051"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+    depends_on:
+      - hebbs
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  hebbs-data:
+  prometheus-data:
+  grafana-data:
+```
+
+## Prometheus Configuration
+
+Create `prometheus.yml`:
+
+```yaml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "alert-rules.yml"
+
+scrape_configs:
+  - job_name: "hebbs"
+    static_configs:
+      - targets: ["hebbs:9090"]
+    scrape_interval: 10s
+```
+
+## Alert Rules
+
+Create `alert-rules.yml`:
+
+```yaml
+groups:
+  - name: hebbs-alerts
+    rules:
+      - alert: HebbsDown
+        expr: up{job="hebbs"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HEBBS server is unreachable"
+
+      - alert: HebbsHighRecallLatency
+        expr: histogram_quantile(0.99, rate(hebbs_recall_duration_seconds_bucket[5m])) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HEBBS recall p99 > 10ms"
+
+      - alert: HebbsHighErrorRate
+        expr: >
+          rate(hebbs_operations_total{status="error"}[5m])
+          / rate(hebbs_operations_total[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HEBBS error rate > 1%"
+```
+
+## Grafana Provisioning
+
+### Data Source
+
+Create `grafana/provisioning/datasources/prometheus.yml`:
+
+```yaml
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+```
+
+### Dashboard
+
+Create `grafana/provisioning/dashboards/dashboards.yml`:
+
+```yaml
+apiVersion: 1
+providers:
+  - name: "HEBBS"
+    orgId: 1
+    folder: "HEBBS"
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards
+```
+
+## Import the Dashboard
+
+1. Start the stack: `docker-compose up -d`
+2. Open Grafana at `http://localhost:3000` (admin/admin)
+3. Navigate to **Dashboards > Import**
+4. Upload the HEBBS dashboard JSON from the repository or paste the dashboard ID
+
+## Configure Alerts
+
+In Grafana, set up notification channels:
+
+1. Go to **Alerting > Contact points**
+2. Add your preferred channel (Slack, PagerDuty, email)
+3. Create alert rules based on the Prometheus metrics
+
+## Verify the Stack
+
+```bash
+# Start everything
+docker-compose up -d
+
+# Wait for services to be healthy
+docker-compose ps
+
+# Store some test data
+hebbs-cli remember --entity test --content "monitoring stack test memory"
+hebbs-cli recall --entity test --query "test"
+
+# Check Prometheus targets
+curl http://localhost:9091/api/v1/targets | jq '.data.activeTargets[].health'
+
+# Check Grafana
+open http://localhost:3000
+```
+
+## Key Dashboard Panels
+
+Once configured, the dashboard shows:
+
+- **Operations/sec** — throughput across all operation types
+- **Latency heatmap** — request latency distribution over time
+- **Error rate** — percentage of failed operations
+- **Memory count** — total memories stored
+- **Storage size** — RocksDB disk usage
+- **Active subscriptions** — current streaming connections
+- **Reflection activity** — insight generation rate
+
+## Teardown
+
+```bash
+docker-compose down
+
+# To also remove data volumes:
+docker-compose down -v
+```

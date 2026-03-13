@@ -1,0 +1,77 @@
+---
+title: "CLI Installation"
+description: "Install the HEBBS CLI."
+---
+
+## Quick Install (curl)
+
+The fastest way to install the HEBBS CLI on Linux or macOS:
+
+```bash
+curl -sSf https://hebbs.ai/install | sh
+```
+
+This downloads the correct binary for your platform and places it in `~/.local/bin/`. Make sure this directory is on your `PATH`.
+
+## Install with Cargo
+
+If you have a Rust toolchain installed:
+
+```bash
+cargo install hebbs-cli
+```
+
+This compiles from source and installs the binary to `~/.cargo/bin/`.
+
+### Build from Source
+
+```bash
+git clone https://github.com/hebbs-ai/hebbs.git
+cd hebbs
+cargo build --release -p hebbs-cli
+```
+
+The binary is at `target/release/hebbs-cli`.
+
+## Platform Binaries
+
+Pre-built binaries are available on the [GitHub Releases](https://github.com/hebbs-ai/hebbs/releases) page for:
+
+| Platform | Architecture | File |
+|---|---|---|
+| Linux | x86_64 | `hebbs-cli-linux-amd64.tar.gz` |
+| Linux | aarch64 | `hebbs-cli-linux-arm64.tar.gz` |
+| macOS | x86_64 | `hebbs-cli-darwin-amd64.tar.gz` |
+| macOS | Apple Silicon | `hebbs-cli-darwin-arm64.tar.gz` |
+
+## Verify Installation
+
+```bash
+hebbs-cli --version
+```
+
+Expected output:
+
+```
+hebbs-cli 0.1.0
+```
+
+## Shell Completions
+
+Generate shell completions for your shell:
+
+```bash
+# Bash
+hebbs-cli completions bash > ~/.local/share/bash-completion/completions/hebbs-cli
+
+# Zsh
+hebbs-cli completions zsh > ~/.zfunc/_hebbs-cli
+
+# Fish
+hebbs-cli completions fish > ~/.config/fish/completions/hebbs-cli.fish
+```
+
+## Next Steps
+
+- [Commands Reference](/cli/commands/) — learn the available commands
+- [REPL](/cli/repl/) — start an interactive session

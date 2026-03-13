@@ -1,0 +1,162 @@
+---
+title: "Running Benchmarks"
+description: "How to run the HEBBS benchmark suite."
+---
+
+HEBBS provides two benchmarking tools: `hebbs-bench` for end-to-end load testing and Criterion micro-benchmarks for hot-path performance measurement.
+
+## hebbs-bench CLI
+
+The `hebbs-bench` tool runs end-to-end benchmarks against a running HEBBS server.
+
+### Installation
+
+```bash
+cargo install --path crates/hebbs-bench
+```
+
+Or use the pre-built binary from the release:
+
+```bash
+hebbs-bench --version
+```
+
+### Benchmark Tiers
+
+| Tier | Duration | Memories | Description |
+|---|---|---|---|
+| `quick` | ~1 min | 10K | Fast validation, suitable for CI |
+| `standard` | ~10 min | 100K | Default tier, comprehensive coverage |
+| `full` | ~60 min | 1M+ | Full-scale stress test |
+
+### Running
+
+```bash
+# Quick validation
+hebbs-bench --tier quick --address localhost:50051
+
+# Standard benchmark
+hebbs-bench --tier standard --address localhost:50051
+
+# Full benchmark with JSON output
+hebbs-bench --tier full --address localhost:50051 --format json > results.json
+```
+
+### Output
+
+```
+HEBBS Benchmark — standard tier
+Server: localhost:50051 (v0.1.0)
+─────────────────────────────────────────────────────
+
+Phase 1: Ingest (100,000 memories)
+  Throughput: 3,241 memories/sec
+  p50: 1.8ms  p95: 3.2ms  p99: 4.7ms
+
+Phase 2: Similarity Recall (10,000 queries)
+  Throughput: 4,812 queries/sec
+  p50: 2.1ms  p95: 4.5ms  p99: 6.8ms
+
+Phase 3: Temporal Recall (10,000 queries)
+  Throughput: 6,234 queries/sec
+  p50: 0.9ms  p95: 1.8ms  p99: 2.5ms
+
+Phase 4: Causal Recall (5,000 queries)
+  Throughput: 5,100 queries/sec
+  p50: 1.2ms  p95: 2.9ms  p99: 4.3ms
+
+Phase 5: Mixed Workload (50,000 ops)
+  Read/Write ratio: 80/20
+  Overall throughput: 4,100 ops/sec
+  p50: 1.5ms  p95: 3.8ms  p99: 5.9ms
+
+─────────────────────────────────────────────────────
+All targets PASSED ✓
+```
+
+### Custom Workloads
+
+```bash
+# Custom memory count and concurrency
+hebbs-bench --memories 500000 --concurrency 200 --address localhost:50051
+
+# Only run specific phases
+hebbs-bench --phases ingest,similarity --tier standard
+```
+
+## Criterion Micro-Benchmarks
+
+Criterion benchmarks measure individual function performance without network overhead. They live in the `benches/` directory.
+
+### Running
+
+```bash
+# Run all benchmarks
+cargo bench
+
+# Run specific benchmark group
+cargo bench --bench hnsw_bench
+cargo bench --bench storage_bench
+cargo bench --bench embed_bench
+
+# Run with baseline comparison
+cargo bench -- --baseline main
+```
+
+### Available Benchmark Groups
+
+| File | What It Measures |
+|---|---|
+| `benches/hnsw_bench.rs` | HNSW insert, query, delete at various scales |
+| `benches/storage_bench.rs` | RocksDB read, write, batch, iteration |
+| `benches/embed_bench.rs` | Embedding generation (single and batched) |
+| `benches/temporal_bench.rs` | B-tree index insert and range queries |
+| `benches/graph_bench.rs` | Graph adjacency insert and BFS traversal |
+| `benches/core_bench.rs` | End-to-end remember and recall through core engine |
+
+### Baseline Comparison
+
+Criterion supports comparing against a saved baseline to detect regressions:
+
+```bash
+# Save current performance as baseline
+cargo bench -- --save-baseline before-change
+
+# Make your changes, then compare
+cargo bench -- --baseline before-change
+```
+
+Criterion reports percentage change and statistical significance for each benchmark.
+
+### CI Integration
+
+The CI pipeline runs `cargo bench` on every PR and fails if any hot-path benchmark regresses by more than 10%:
+
+```bash
+# CI script
+cargo bench -- --baseline main --output-format bencher \
+  | tee benchmark-results.txt
+
+# Check for regressions > 10%
+hebbs-bench-check --threshold 10 benchmark-results.txt
+```
+
+## Interpreting Results
+
+- **p50** — median latency. Most operations should complete at this speed.
+- **p95** — 95th percentile. Occasional slow operations due to compaction or cache misses.
+- **p99** — 99th percentile. The "worst case" for capacity planning. This is what the latency targets are defined against.
+- **Throughput** — operations per second at the tested concurrency level.
+
+## Reproducing Published Numbers
+
+To reproduce the numbers in [Performance Targets](/benchmarks/targets/) and [Scalability Curves](/benchmarks/scalability/):
+
+```bash
+# Use the standard test configuration
+hebbs-bench --tier full \
+  --address localhost:50051 \
+  --config benches/standard-config.toml
+```
+
+The `standard-config.toml` file pins HNSW parameters, embedding model, and test data to ensure reproducible results.

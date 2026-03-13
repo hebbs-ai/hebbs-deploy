@@ -1,0 +1,36 @@
+---
+title: Lineage & Edges
+description: "Typed relationships between memories: causal chains, revisions, and insight provenance."
+---
+
+Memories in HEBBS are not isolated. They connect via typed edges that form a graph. This graph enables causal reasoning, revision tracking, and insight provenance. Lineage is a first-class concept: every derived or revised memory knows where it came from.
+
+## Edge Types
+
+| Edge Type | Direction | Meaning |
+|-----------|-----------|---------|
+| **CausedBy** | A → B means B caused A | B is a cause of A. Used for "what led to this?" reasoning. |
+| **RelatedTo** | A ↔ B | Semantic or topical association. No strict causality. |
+| **FollowedBy** | A → B | A happened before B in sequence. Temporal ordering. |
+| **RevisedFrom** | A → B | A is a revision that supersedes B. B is the predecessor. |
+| **InsightFrom** | A → B | A (an Insight) was derived from B (an Episode). Provenance. |
+
+Edges are stored with the memory record. They are indexed for graph traversal during causal recall and for lineage queries.
+
+## How Lineage Tracking Works
+
+When you call `revise`, HEBBS creates a new memory with `kind: Revision` and an edge `RevisedFrom` pointing to the original. The original memory remains in storage for audit but is no longer returned by default recall (the revision supersedes it). Lineage queries can still walk backward to show the revision history.
+
+When the reflection pipeline produces an insight, it creates an Insight-kind memory with `InsightFrom` edges to each source episode. The lineage graph answers: "Which raw memories support this insight?" This is critical for auditability and for explaining AI behavior.
+
+Causal edges (CausedBy, FollowedBy) are typically set at write time by the application. For example, when storing a conversation turn, you might add CausedBy to the previous user message. The agent can then use causal recall to trace reasoning chains.
+
+## Why Lineage Matters
+
+**Auditability**: Regulated industries need to show where a decision or recommendation came from. Lineage provides a trace from insight → source episodes. "This recommendation is based on conversations X, Y, Z."
+
+**Insight provenance**: When an agent surfaces an insight, the user may ask "why?" Lineage links the insight to specific memories. The agent can cite sources.
+
+**Causal reasoning**: Causal recall uses CausedBy and FollowedBy to answer "what caused this?" and "what happened next?" This supports root-cause analysis, chain-of-thought retrieval, and narrative reconstruction.
+
+**Revision history**: When beliefs are updated via `revise`, lineage preserves the old version. You can audit what changed and when, or roll back if needed.

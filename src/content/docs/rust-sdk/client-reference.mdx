@@ -1,0 +1,214 @@
+---
+title: "Rust Client Reference"
+description: "Complete reference for the hebbs-client crate."
+---
+
+## HebbsClient
+
+The primary entry point for interacting with a HEBBS server.
+
+### Builder
+
+```rust
+let client = HebbsClient::builder()
+    .endpoint("http://localhost:6380")
+    .api_key("hb_your_key_here")
+    .tenant_id("acme-corp")  // optional — normally derived from API key
+    .timeout(Duration::from_secs(10))
+    .retry_policy(RetryPolicy::exponential(3, Duration::from_millis(100)))
+    .build()
+    .await?;
+```
+
+| Method | Description |
+|---|---|
+| `endpoint(impl Into<String>)` | Server address (required) |
+| `timeout(Duration)` | Default request timeout |
+| `api_key(impl Into<String>)` | API key for authentication |
+| `tenant_id(impl Into<String>)` | Explicit tenant ID for multi-tenant deployments. Normally derived from the API key by the server. Set this only when running without authentication or when you need to override the key-derived tenant. |
+| `retry_policy(RetryPolicy)` | Retry configuration for transient failures |
+| `keepalive_interval(Duration)` | HTTP/2 keepalive interval |
+| `connect_lazy(bool)` | Defer connection to first RPC (default: true) |
+| `user_agent(impl Into<String>)` | Custom User-Agent header |
+| `build()` | Build the client (returns `Result<HebbsClient>`) |
+
+---
+
+## Core Operations
+
+### remember
+
+```rust
+client.remember(content)
+    .entity(entity)
+    .kind(MemoryKind)
+    .edges(vec![Edge { .. }])
+    .metadata("key", "value")
+    .send()
+    .await? -> Memory
+```
+
+### get
+
+```rust
+client.get(memory_id).await? -> Memory
+```
+
+Returns `HebbsError` with `NotFound` kind if the memory does not exist.
+
+### recall
+
+```rust
+client.recall(query)
+    .entity(entity)
+    .strategy(RecallStrategy)
+    .top_k(10)
+    .threshold(0.7)
+    .send()
+    .await? -> RecallOutput
+```
+
+### prime
+
+```rust
+client.prime(query)
+    .entity(entity)
+    .strategy(RecallStrategy)
+    .top_k(20)
+    .send()
+    .await? -> PrimeOutput
+```
+
+### revise
+
+```rust
+client.revise(memory_id)
+    .content("updated text")
+    .metadata("key", "new-value")
+    .send()
+    .await? -> Memory
+```
+
+### forget
+
+```rust
+// Forget specific memories
+client.forget(entity)
+    .memory_ids(vec!["mem_abc", "mem_def"])
+    .send()
+    .await? -> ForgetResult
+
+// Forget all memories for entity
+client.forget(entity)
+    .send()
+    .await? -> ForgetResult
+```
+
+---
+
+## Policy and Reflection
+
+### set_policy
+
+```rust
+client.set_policy(entity)
+    .reflect_enabled(true)
+    .reflect_interval(Duration::from_secs(3600))
+    .reflect_min_memories(10)
+    .send()
+    .await?
+```
+
+### reflect
+
+```rust
+client.reflect(entity).await? -> ReflectResult
+```
+
+### insights
+
+```rust
+client.insights(entity)
+    .top_k(10)
+    .send()
+    .await? -> Vec<Memory>
+```
+
+---
+
+## Streaming
+
+### subscribe
+
+```rust
+let mut subscription = client.subscribe(entity)
+    .strategy(RecallStrategy::Similarity)
+    .top_k(5)
+    .threshold(0.7)
+    .open()
+    .await?;
+
+subscription.feed("new context text").await?;
+
+while let Some(push) = subscription.next().await? {
+    for result in &push.memories {
+        println!("[{:.3}] {}", result.score, result.memory.content);
+    }
+}
+```
+
+---
+
+## Health
+
+### health
+
+```rust
+client.health().await? -> HealthStatus
+```
+
+### count
+
+```rust
+client.count(entity).await? -> u64
+```
+
+---
+
+## Retry Policies
+
+```rust
+use hebbs_client::RetryPolicy;
+
+// Exponential backoff: 3 retries, starting at 100ms
+let policy = RetryPolicy::exponential(3, Duration::from_millis(100));
+
+// Fixed interval: 3 retries, 500ms apart
+let policy = RetryPolicy::fixed(3, Duration::from_millis(500));
+
+// No retries
+let policy = RetryPolicy::none();
+```
+
+Retries apply only to transient errors (connection failures, timeouts, server unavailable). Non-retryable errors (not found, invalid argument) propagate immediately.
+
+---
+
+## Domain Types
+
+All types are in `hebbs_client::types`:
+
+| Type | Description |
+|---|---|
+| `Memory` | Stored memory with content, entity, kind, edges, metadata, timestamps |
+| `MemoryKind` | `Episodic`, `Semantic`, `Procedural`, `Insight` |
+| `Edge` | Directed relationship (`target_id`, `edge_type`, `weight`) |
+| `EdgeType` | `RelatedTo`, `CausedBy`, `PrecededBy`, `InsightFrom`, `RevisedFrom` |
+| `RecallStrategy` | `Similarity`, `Temporal`, `Causal`, `Analogical` |
+| `RecallOutput` | Query results with ranked memories and latency |
+| `RecallResult` | Single result with memory and score |
+| `PrimeOutput` | Prime response with count and latency |
+| `ForgetResult` | Deletion response with count |
+| `ReflectResult` | Reflection response with insight count and processing stats |
+| `HealthStatus` | Server health, version, uptime |
+| `SubscribePush` | Streamed push with memories and trigger text |

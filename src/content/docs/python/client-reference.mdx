@@ -1,0 +1,314 @@
+---
+title: "Client Reference"
+description: "Complete reference for HebbsClient methods."
+---
+
+## HebbsClient
+
+The primary interface for interacting with a HEBBS server. All methods are async coroutines.
+
+### Constructor
+
+```python
+HebbsClient(
+    address: str = "localhost:6380",
+    *,
+    api_key: str | None = None,
+    tenant_id: str | None = None,
+    channel_options: list[tuple[str, Any]] | None = None,
+)
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| `address` | `str` | Server gRPC address in `host:port` format. Default: `localhost:6380`. |
+| `api_key` | `str \| None` | API key for authentication (`hb_...`). Falls back to the `HEBBS_API_KEY` environment variable if not provided. Pass `""` to explicitly connect without auth. |
+| `tenant_id` | `str \| None` | Explicit tenant ID. Normally derived from the API key by the server. |
+| `channel_options` | `list[tuple[str, Any]] \| None` | Additional gRPC channel options. |
+
+Use as a context manager for automatic connection/cleanup:
+
+```python
+async with HebbsClient("localhost:6380", api_key="hb_...") as h:
+    await h.remember("Hello", entity_id="user-1")
+```
+
+Or call `connect()` and `close()` manually:
+
+```python
+h = HebbsClient("localhost:6380", api_key="hb_...")
+await h.connect()
+# ... use h ...
+await h.close()
+```
+
+---
+
+### Core Operations
+
+#### `remember(content, importance=None, context=None, entity_id=None, edges=None)`
+
+Store a new memory in the engine.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `content` | `str` | The memory content to store |
+| `importance` | `float \| None` | Importance score (0.0--1.0). Default: engine-assigned. |
+| `context` | `dict[str, Any] \| None` | Structured key-value metadata (used by analogical recall for structural matching) |
+| `entity_id` | `str \| None` | Entity scope for the memory |
+| `edges` | `list[Edge] \| None` | Relationships to other memories (e.g. `FOLLOWED_BY`, `CAUSED_BY`) |
+
+**Returns:** `Memory`
+
+```python
+from hebbs import Edge, EdgeType
+
+mem1 = await h.remember("CTO expressed interest in our API", entity_id="initech")
+mem2 = await h.remember(
+    "Requested a technical deep-dive meeting",
+    entity_id="initech",
+    edges=[Edge(target_id=mem1.id, edge_type=EdgeType.FOLLOWED_BY, confidence=0.95)],
+)
+```
+
+---
+
+#### `get(memory_id)`
+
+Retrieve a single memory by its ID.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `memory_id` | `bytes` | The 16-byte memory identifier |
+
+**Returns:** `Memory`
+
+**Raises:** `HebbsNotFoundError` if the memory does not exist.
+
+---
+
+#### `recall(cue, strategies=None, top_k=None, entity_id=None, scoring_weights=None, cue_context=None)`
+
+Query the engine for relevant memories using one or more recall strategies.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `cue` | `str` | Natural language query |
+| `strategies` | `list[str \| RecallStrategyConfig] \| None` | One or more strategy names or `RecallStrategyConfig` objects. You can mix both. Default: `["similarity"]`. |
+| `top_k` | `int \| None` | Maximum number of results. Default: `10`. |
+| `entity_id` | `str \| None` | Entity scope to search within |
+| `scoring_weights` | `ScoringWeights \| dict \| None` | Override composite scoring weights. Default: `(0.5, 0.2, 0.2, 0.1)`. |
+| `cue_context` | `dict[str, Any] \| None` | Structured context for analogical recall's structural similarity matching. Not stored. |
+
+**Returns:** `RecallOutput`
+
+Each result includes both `score` (composite) and per-strategy `strategy_details` with raw `relevance`.
+
+**Basic usage** -- pass strategy names as strings:
+
+```python
+results = await h.recall("Acme meeting", strategies=["similarity"], entity_id="acme")
+```
+
+**Multi-strategy** -- combine strategies:
+
+```python
+results = await h.recall(
+    "What is Initech doing?",
+    strategies=["similarity", "temporal"],
+    entity_id="initech",
+    top_k=5,
+)
+```
+
+**Advanced usage** -- per-strategy tuning with `RecallStrategyConfig`:
+
+```python
+from hebbs import RecallStrategyConfig, EdgeType
+
+# Causal recall: trace edges from a seed memory
+results = await h.recall(
+    "What led to the pricing pushback?",
+    strategies=[
+        RecallStrategyConfig(
+            "causal",
+            seed_memory_id=seed.id,
+            max_depth=3,
+            edge_types=[EdgeType.CAUSED_BY, EdgeType.FOLLOWED_BY],
+        )
+    ],
+)
+```
+
+**Mixed** -- strings and configs together:
+
+```python
+results = await h.recall(
+    "Initech evaluation",
+    strategies=["temporal", RecallStrategyConfig("similarity", top_k=3, ef_search=200)],
+    entity_id="initech",
+)
+```
+
+#### RecallStrategyConfig
+
+Per-strategy tuning parameters. All fields except `strategy` are optional and use smart engine defaults. Most users never need this -- pass strategy names as strings instead.
+
+| Field | Type | Default | Used By | Description |
+|---|---|---|---|---|
+| `strategy` | `str` | *(required)* | all | `"similarity"`, `"temporal"`, `"causal"`, or `"analogical"` |
+| `entity_id` | `str \| None` | `None` | all | Override entity scope for this strategy |
+| `top_k` | `int \| None` | `None` | all | Per-strategy result limit |
+| `ef_search` | `int \| None` | `50` | similarity | HNSW candidate count. Higher = more accurate, slower. |
+| `time_range` | `tuple[int, int] \| None` | `None` | temporal | `(start_us, end_us)` in microseconds. Unbounded when omitted. |
+| `seed_memory_id` | `bytes \| None` | `None` | causal | Starting node for graph traversal. Auto-detected when omitted. |
+| `max_depth` | `int \| None` | `5` | causal | Max hops in traversal. Hard cap: 10. |
+| `edge_types` | `list[EdgeType] \| None` | `None` | causal | Restrict traversal to specific edge types. All types when omitted. |
+| `analogical_alpha` | `float \| None` | `0.5` | analogical | Blend weight: `0.0` = pure structural similarity, `1.0` = pure embedding similarity. |
+
+---
+
+#### `prime(entity_id, max_memories=None, similarity_cue=None, scoring_weights=None)`
+
+Pre-load session context for an entity, blending temporal and similarity recall.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `entity_id` | `str` | Entity whose context to load |
+| `max_memories` | `int \| None` | Maximum total memories to return. Default: `20`. |
+| `similarity_cue` | `str \| None` | Optional cue for the similarity component. When omitted, the engine builds a synthetic cue from entity history. |
+| `scoring_weights` | `ScoringWeights \| dict \| None` | Override composite scoring weights. |
+
+**Returns:** `PrimeOutput` (includes `results`, `temporal_count`, `similarity_count`)
+
+```python
+prime = await h.prime(entity_id="initech", max_memories=50, similarity_cue="enterprise evaluation")
+print(f"Temporal: {prime.temporal_count}, Similarity: {prime.similarity_count}")
+```
+
+---
+
+#### `revise(memory_id, content=None, importance=None, context=None, entity_id=None)`
+
+Update an existing memory. The memory's `kind` changes to `revision`.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `memory_id` | `bytes` | ID of the memory to revise |
+| `content` | `str \| None` | Updated content |
+| `importance` | `float \| None` | Updated importance score |
+| `context` | `dict[str, Any] \| None` | Updated context metadata |
+| `entity_id` | `str \| None` | Updated entity scope |
+
+**Returns:** `Memory` (the revised version)
+
+```python
+revised = await h.revise(
+    mem.id,
+    content="Deal size expanded to 350 seats",
+    importance=0.95,
+    context={"deal_size": "350 seats", "stage": "negotiation"},
+)
+```
+
+---
+
+#### `forget(entity_id=None, memory_ids=None)`
+
+Erase memories permanently (GDPR-compliant cryptographic erasure). Pass `entity_id` for entity-wide deletion, or `memory_ids` for targeted deletion.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `entity_id` | `str \| None` | Delete all memories for this entity |
+| `memory_ids` | `list[bytes] \| None` | Specific memory IDs to delete |
+
+**Returns:** `ForgetResult` (includes `forgotten_count`, `cascade_count`, `tombstone_count`)
+
+```python
+# Forget everything for an entity
+result = await h.forget(entity_id="gdpr-user-123")
+
+# Forget specific memories
+result = await h.forget(memory_ids=[mem1.id, mem2.id])
+```
+
+---
+
+### Policy and Reflection
+
+#### `set_policy(max_snapshots_per_memory=None, auto_forget_threshold=None, decay_half_life_days=None)`
+
+Configure tenant-level policy parameters.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `max_snapshots_per_memory` | `int \| None` | Maximum revision snapshots to retain per memory |
+| `auto_forget_threshold` | `float \| None` | Decay score below which memories are auto-forgotten |
+| `decay_half_life_days` | `float \| None` | Half-life for memory decay in days |
+
+**Returns:** `bool` (`True` on success)
+
+---
+
+#### `reflect(entity_id=None)`
+
+Trigger the reflection pipeline to generate insights from memory clusters. Uses the LLM configured on the server (e.g. OpenAI GPT-4o).
+
+| Parameter | Type | Description |
+|---|---|---|
+| `entity_id` | `str \| None` | Scope reflection to a specific entity. All entities when omitted. |
+
+**Returns:** `ReflectResult` (includes `insights_created`, `clusters_found`, `clusters_processed`, `memories_processed`)
+
+---
+
+#### `insights(entity_id=None, max_results=None)`
+
+Retrieve insights generated by the reflection pipeline.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `entity_id` | `str \| None` | Filter insights by entity |
+| `max_results` | `int \| None` | Maximum number of insights to return |
+
+**Returns:** `list[Memory]` (insights are stored as `kind=insight` memories)
+
+---
+
+### Streaming
+
+#### `subscribe(entity_id=None, confidence_threshold=0.5)`
+
+Open a real-time subscription for memory surfacing.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `entity_id` | `str \| None` | Entity scope |
+| `confidence_threshold` | `float` | Minimum confidence for pushes. Default: `0.5`. |
+
+**Returns:** `Subscription`
+
+The `Subscription` object supports:
+- `feed(text)` -- send text to the stream for matching
+- `close()` -- close the subscription
+- Async iteration -- `async for push in sub:` to receive `SubscribePush` events
+
+See [Subscribe Streaming](/python/subscribe-streaming/) for full usage.
+
+---
+
+### Health
+
+#### `health()`
+
+Check server health and readiness. This endpoint does not require authentication.
+
+**Returns:** `HealthStatus` (includes `serving`, `version`, `memory_count`, `uptime_seconds`)
+
+---
+
+#### `count()`
+
+Return the total number of memories stored (via the health endpoint).
+
+**Returns:** `int`

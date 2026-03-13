@@ -1,0 +1,58 @@
+---
+title: Reflection & Insights
+description: How HEBBS consolidates raw memories into institutional knowledge through background reflection.
+---
+
+Reflection is HEBBS's consolidation pipeline. It runs in the background, never on the hot path. Raw episodes are clustered, analyzed, and distilled into Insight-kind memories that capture patterns, lessons, and institutional knowledge.
+
+## The 4-Stage Pipeline
+
+### 1. Cluster
+
+Similar memories are grouped together. Clustering uses embedding similarity and optionally temporal proximity. Episodes that discuss the same topic, involve the same entities, or share causal structure are grouped. The cluster size and similarity threshold are configurable.
+
+Only Episode-kind memories are clustered. Insights and Revisions are not re-clustered (they are already consolidated or superseded).
+
+### 2. Propose
+
+For each cluster, an LLM generates candidate insights. The prompt includes representative memories from the cluster. The LLM proposes a concise summary, a lesson learned, or a pattern. Multiple candidates may be proposed per cluster.
+
+This stage is where LLM calls occur. The LLM provider (OpenAI, Anthropic, local model) is configured separately. Propose runs asynchronously; failures are retried with backoff.
+
+### 3. Validate
+
+A second LLM pass validates each candidate. It checks: Is this accurate? Does it faithfully reflect the source memories? Is it useful? Candidates that fail validation are discarded. This reduces hallucination and keeps insights grounded in actual experience.
+
+Validation can be strict (reject anything uncertain) or lenient (allow plausible extrapolations). Configurable per tenant.
+
+### 4. Consolidate
+
+Validated insights are stored as Insight-kind memories. Each insight has edges (InsightFrom) linking it to the source episodes. Lineage is preserved for audit and provenance. The original episodes remain; insights are additive, not replacements.
+
+Consolidation updates indexes so insights are queryable via `recall` and `insights`. Importance can be derived from cluster size, source importance, or explicit scoring.
+
+## reflect_policy: Automatic Triggers
+
+`reflect_policy` configures when reflection runs automatically. Triggers can include:
+
+- **Count-based**: Run when N new episodes accumulate for an entity.
+- **Time-based**: Run on a schedule (e.g., nightly).
+- **Importance-based**: Run when high-importance episodes are added.
+
+Multiple triggers can be combined. Reflection is rate-limited to avoid overloading the LLM provider.
+
+## reflect: Manual Invocation
+
+`reflect` runs the pipeline on demand. You specify entity, time range, or memory IDs. Use this for:
+
+- Catching up after a bulk import.
+- Forcing consolidation before a critical operation.
+- Testing the pipeline with a small set of memories.
+
+Manual reflect respects the same 4-stage pipeline. It does not bypass validation or consolidation.
+
+## insights: Querying Insights
+
+The `insights` operation returns Insight-kind memories for an entity, optionally filtered by topic or time. Use it when the agent needs distilled knowledge rather than raw episodes: "What have we learned about this customer?" "What patterns emerged from last quarter's support tickets?"
+
+Insights are also returned by `recall` when the query matches. The `insights` operation is a convenience for "give me the institutional knowledge for this scope."

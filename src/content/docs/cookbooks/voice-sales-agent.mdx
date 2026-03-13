@@ -1,0 +1,163 @@
+---
+title: "Voice Sales Agent"
+description: "Build an AI sales agent with cross-session memory."
+---
+
+This cookbook builds a voice sales agent that uses HEBBS to maintain persistent memory across multiple customer interactions. Based on the HEBBS demo application, it demonstrates discovery calls, objection handling, and multi-session learning.
+
+## Architecture
+
+```
+Voice Input → STT → Agent LLM → TTS → Voice Output
+                       ↕
+                     HEBBS
+              (persistent memory)
+```
+
+The agent stores conversation highlights in HEBBS after each interaction and retrieves relevant context before responding.
+
+## Session 1: Discovery Call
+
+```python
+import asyncio
+from hebbs import HebbsClient, MemoryKind, Edge, EdgeType
+
+async def discovery_call(client, customer_entity):
+    # Simulate a discovery call — store key findings
+    findings = [
+        ("Customer has 50 sales reps using Salesforce", MemoryKind.SEMANTIC),
+        ("Annual CRM spend is approximately $300K", MemoryKind.SEMANTIC),
+        ("Main pain point: forecasting accuracy is below 60%", MemoryKind.EPISODIC),
+        ("Decision maker is VP of Sales, Sarah Chen", MemoryKind.SEMANTIC),
+        ("Timeline: need solution in place by Q3", MemoryKind.SEMANTIC),
+        ("Competitor mentioned: HubSpot is also being evaluated", MemoryKind.EPISODIC),
+    ]
+
+    memory_ids = []
+    for content, kind in findings:
+        m = await client.remember(
+            content=content,
+            entity=customer_entity,
+            kind=kind,
+            metadata={"session": "discovery-call-1", "source": "voice"},
+        )
+        memory_ids.append(m.id)
+        print(f"  Stored: {content[:50]}...")
+
+    return memory_ids
+```
+
+## Session 2: Objection Handling
+
+In the follow-up call, the agent retrieves context from the discovery call:
+
+```python
+async def followup_call(client, customer_entity):
+    # Before the call, recall relevant context
+    context = await client.recall(
+        query="What are the customer's main concerns and requirements?",
+        entity=customer_entity,
+        strategy="similarity",
+        top_k=5,
+    )
+
+    print("Pre-call context:")
+    for r in context.memories:
+        print(f"  [{r.score:.3f}] {r.memory.content}")
+
+    # During the call, the customer raises an objection
+    objection = await client.remember(
+        content="Customer concerned about data migration from Salesforce — 5 years of data",
+        entity=customer_entity,
+        kind=MemoryKind.EPISODIC,
+        metadata={"session": "followup-call-1", "source": "voice"},
+    )
+
+    # Store the resolution
+    resolution = await client.remember(
+        content="Offered dedicated migration specialist and 90-day parallel run",
+        entity=customer_entity,
+        kind=MemoryKind.EPISODIC,
+        edges=[Edge(target_id=objection.id, edge_type=EdgeType.CAUSED_BY, weight=1.0)],
+        metadata={"session": "followup-call-1", "source": "voice"},
+    )
+
+    print(f"\nStored objection and resolution with causal link")
+```
+
+## Multi-Session Learning
+
+After several interactions, trigger reflection to generate insights:
+
+```python
+async def learn_from_interactions(client, customer_entity):
+    # Trigger reflection
+    result = await client.reflect(customer_entity)
+    print(f"Reflection: {result.insights_created} insights from {result.memories_processed} memories")
+
+    # Retrieve generated insights
+    insights = await client.insights(customer_entity, top_k=5)
+    print("\nInsights:")
+    for insight in insights:
+        print(f"  [{insight.kind.name}] {insight.content}")
+```
+
+## Full Agent Loop
+
+```python
+async def agent_respond(client, customer_entity, user_utterance):
+    # 1. Recall relevant context
+    context = await client.recall(
+        query=user_utterance,
+        entity=customer_entity,
+        strategy="similarity",
+        top_k=5,
+        threshold=0.6,
+    )
+
+    # 2. Also check for causal context if the utterance seems like a concern
+    causal = await client.recall(
+        query=user_utterance,
+        entity=customer_entity,
+        strategy="causal",
+        top_k=3,
+    )
+
+    # 3. Build prompt context
+    memory_lines = [r.memory.content for r in context.memories]
+    causal_lines = [r.memory.content for r in causal.memories]
+
+    # 4. Generate response (placeholder for your LLM call)
+    # response = await llm.generate(...)
+
+    # 5. Store the interaction
+    await client.remember(
+        content=f"Customer said: {user_utterance}",
+        entity=customer_entity,
+        kind=MemoryKind.EPISODIC,
+        metadata={"source": "voice"},
+    )
+
+    return memory_lines, causal_lines
+```
+
+## Running the Full Demo
+
+```python
+async def main():
+    async with HebbsClient.connect("localhost:50051") as client:
+        entity = "customer-acme-sales"
+
+        print("=== Discovery Call ===")
+        await discovery_call(client, entity)
+
+        print("\n=== Follow-up Call ===")
+        await followup_call(client, entity)
+
+        print("\n=== Learning ===")
+        await learn_from_interactions(client, entity)
+
+        print(f"\nTotal memories: {await client.count(entity)}")
+
+asyncio.run(main())
+```

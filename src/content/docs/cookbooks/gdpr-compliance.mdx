@@ -1,0 +1,170 @@
+---
+title: "GDPR Compliance"
+description: "Implement data erasure with forget() and verify deletion."
+---
+
+This cookbook demonstrates how to implement GDPR Article 17 (Right to Erasure) using HEBBS's `forget()` operation, with verification and audit trail generation.
+
+## Store Memories
+
+First, create memories for a user that we'll later need to erase:
+
+```python
+import asyncio
+from hebbs import HebbsClient, MemoryKind
+
+async def main():
+    async with HebbsClient.connect("localhost:50051") as client:
+        entity = "user-eu-12345"
+
+        # Store personal data
+        await client.remember(
+            content="User's preferred language is German",
+            entity=entity, kind=MemoryKind.SEMANTIC,
+        )
+        await client.remember(
+            content="User lives in Berlin and works in fintech",
+            entity=entity, kind=MemoryKind.SEMANTIC,
+        )
+        await client.remember(
+            content="User reported a bug in the payment flow on March 1",
+            entity=entity, kind=MemoryKind.EPISODIC,
+        )
+        await client.remember(
+            content="User prefers email for notifications, not SMS",
+            entity=entity, kind=MemoryKind.PROCEDURAL,
+        )
+
+        count = await client.count(entity)
+        print(f"Stored {count} memories for {entity}")
+```
+
+## Forget by Entity
+
+Erase all memories for a user in a single call:
+
+```python
+async def erase_user_data(client, entity):
+    # Pre-erasure count for audit
+    count_before = await client.count(entity)
+
+    # Execute erasure
+    result = await client.forget(entity)
+
+    return {
+        "entity": entity,
+        "memories_before": count_before,
+        "memories_deleted": result.deleted_count,
+    }
+```
+
+## Verify Zero Results
+
+After erasure, verify that no data is retrievable:
+
+```python
+async def verify_erasure(client, entity):
+    # Check count is zero
+    count = await client.count(entity)
+    assert count == 0, f"Expected 0 memories, found {count}"
+
+    # Attempt recall with broad queries
+    test_queries = [
+        "user preferences",
+        "personal information",
+        "interaction history",
+        "everything about this user",
+    ]
+
+    for query in test_queries:
+        results = await client.recall(
+            query=query,
+            entity=entity,
+            strategy="similarity",
+            top_k=100,
+        )
+        assert len(results.memories) == 0, (
+            f"Query '{query}' returned {len(results.memories)} results after erasure"
+        )
+
+    # Attempt temporal recall
+    temporal = await client.recall(
+        query="any interaction",
+        entity=entity,
+        strategy="temporal",
+        top_k=100,
+    )
+    assert len(temporal.memories) == 0, "Temporal recall returned results after erasure"
+
+    return True
+```
+
+## Generate Audit Trail
+
+Create an audit record for compliance documentation:
+
+```python
+import json
+from datetime import datetime, timezone
+
+async def gdpr_erasure_with_audit(client, entity, request_id):
+    audit = {
+        "request_id": request_id,
+        "entity": entity,
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+        "type": "GDPR Article 17 - Right to Erasure",
+    }
+
+    # Execute erasure
+    erasure_result = await erase_user_data(client, entity)
+    audit["erasure"] = erasure_result
+    audit["erased_at"] = datetime.now(timezone.utc).isoformat()
+
+    # Verify
+    verified = await verify_erasure(client, entity)
+    audit["verified"] = verified
+    audit["verified_at"] = datetime.now(timezone.utc).isoformat()
+
+    print(json.dumps(audit, indent=2))
+    return audit
+```
+
+## Selective Erasure
+
+For cases where only specific memories need removal (e.g., PII but not anonymized analytics):
+
+```python
+async def selective_erase(client, entity, memory_ids):
+    result = await client.forget(entity, memory_ids=memory_ids)
+    print(f"Selectively deleted {result.deleted_count} memories")
+
+    # Verify specific memories are gone
+    for mid in memory_ids:
+        try:
+            await client.get(mid)
+            raise AssertionError(f"Memory {mid} still exists after erasure")
+        except Exception:
+            pass  # Expected: memory not found
+
+    return result
+```
+
+## Full Compliance Flow
+
+```python
+async def main():
+    async with HebbsClient.connect("localhost:50051") as client:
+        entity = "user-eu-12345"
+
+        # ... store memories ...
+
+        # User requests erasure
+        audit = await gdpr_erasure_with_audit(
+            client, entity, request_id="GDPR-REQ-2025-0042"
+        )
+
+        # Store audit record in your compliance system (not in HEBBS)
+        print(f"Erasure complete. Audit: {audit['request_id']}")
+
+asyncio.run(main())
+```

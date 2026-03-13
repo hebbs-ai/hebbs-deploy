@@ -1,0 +1,201 @@
+---
+title: Quickstart
+description: Install HEBBS, start the server, and store your first memory in under 5 minutes.
+---
+
+Get HEBBS running and store your first memory in under 5 minutes.
+
+## 1. Install
+
+Install the HEBBS binary using the curl installer:
+
+```bash
+curl -sSf https://hebbs.ai/install | sh
+```
+
+The installer downloads `hebbs-server`, `hebbs-cli`, and `hebbs-bench` to `~/.hebbs/bin`.
+
+Add the install directory to your PATH:
+
+```bash
+export PATH="$HOME/.hebbs/bin:$PATH"
+```
+
+To make this permanent, add that line to your `~/.zshrc` or `~/.bashrc`.
+
+Verify the install:
+
+```bash
+hebbs-server --version
+hebbs-cli --version
+```
+
+## 2. Start the Server
+
+Start the HEBBS server with default settings (gRPC on port 6380, HTTP on port 6381):
+
+```bash
+hebbs-server
+```
+
+In a new terminal, verify it's running:
+
+```bash
+curl http://localhost:6381/v1/health/ready
+```
+
+HEBBS runs with sensible defaults. To customize ports, storage, embedding models, or enable reflection, see the [Configuration Reference](/server/configuration/).
+
+## 3. Set Your API Key
+
+On first start, HEBBS generates a bootstrap API key and prints it to the console:
+
+```
+╔══════════════════════════════════════════════════════════════════╗
+║  BOOTSTRAP API KEY (save this -- it will not be shown again)    ║
+║                                                                  ║
+║  hb_TwHTOWQwvTNAUgREpj-6nKaOIzgKkgZW5nDcjAaNaRU              ║
+╚══════════════════════════════════════════════════════════════════╝
+```
+
+**Save this key.** It will not be shown again. Export it so the CLI and SDKs can authenticate:
+
+```bash
+export HEBBS_API_KEY="hb_..."
+```
+
+To make this permanent, add that line to your `~/.zshrc` or `~/.bashrc`.
+
+:::tip
+For local development, you can disable auth entirely with `HEBBS_AUTH_ENABLED=false hebbs-server`. See the [Authentication section](/server/configuration/#authentication) for details.
+:::
+
+## 4. Store a Memory
+
+Use the CLI to store your first memory:
+
+```bash
+hebbs-cli remember "Met with the Acme Corp team about Q2 roadmap."
+```
+
+## 5. Recall It
+
+Recall the memory using a natural language cue:
+
+```bash
+hebbs-cli recall "Acme meeting"
+```
+
+You'll see output like:
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│ #  Score   Memory ID                  Kind     Content              │
+╞══════════════════════════════════════════════════════════════════════╡
+│ 1  0.6701  01KK3S0KXYE22EFF489YR...  episode  Met with the Acme... │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### Understanding the Score
+
+The `Score` column is a **composite score**, not raw semantic similarity. HEBBS blends four signals to rank results:
+
+| Signal | Default Weight | What it captures |
+|--------|---------------|-----------------|
+| **Relevance** | 0.5 | Cosine similarity between query and memory embeddings |
+| **Recency** | 0.2 | How recently the memory was created (decays over 30 days) |
+| **Importance** | 0.2 | The memory's importance value (default 0.5 at creation) |
+| **Reinforcement** | 0.1 | How often the memory has been recalled before |
+
+So a score of 0.67 doesn't mean weak similarity -- it means the raw cosine similarity (likely ~0.85) was blended with the other signals. A brand-new memory with default importance and no prior recalls has a theoretical maximum composite score of ~0.80.
+
+You can override these weights via `scoring_weights` in the REST API, gRPC, Python SDK, or TypeScript SDK. For example, to rank purely by semantic relevance:
+
+```python
+# Python
+results = await client.recall(
+    "Acme meeting",
+    strategies=["similarity"],
+    scoring_weights={"w_relevance": 1.0, "w_recency": 0.0, "w_importance": 0.0, "w_reinforcement": 0.0},
+)
+```
+
+```typescript
+// TypeScript
+const results = await client.recall({
+    cue: 'Acme meeting',
+    strategies: ['similarity'],
+    scoringWeights: { wRelevance: 1.0, wRecency: 0.0, wImportance: 0.0, wReinforcement: 0.0 },
+});
+```
+
+See [Recall Strategies](/concepts/recall-strategies/) for details on the composite scoring formula and tuning strategies.
+
+## 6. Try the Python SDK
+
+Install the Python SDK:
+
+```bash
+pip install hebbs
+```
+
+```python
+import asyncio
+import os
+from hebbs import HebbsClient
+
+async def main():
+    async with HebbsClient("localhost:6380", api_key=os.environ["HEBBS_API_KEY"]) as client:
+        mem = await client.remember(
+            content="My first memory from Python!",
+            importance=0.8,
+        )
+        print(f"Stored memory: {mem.id}")
+
+        results = await client.recall("first memory", strategies=["similarity"])
+        for r in results.results:
+            print(f"  [{r.score:.2f}] {r.memory.content}")
+
+asyncio.run(main())
+```
+
+## 7. Try the TypeScript SDK
+
+Install the TypeScript SDK:
+
+```bash
+npm install @hebbs/sdk
+```
+
+```typescript
+import { HebbsClient } from '@hebbs/sdk';
+
+const client = new HebbsClient('localhost:6380', {
+  apiKey: process.env.HEBBS_API_KEY,
+});
+await client.connect();
+
+const mem = await client.remember({
+  content: 'My first memory from TypeScript!',
+  importance: 0.8,
+});
+console.log(`Stored memory: ${mem.id.toString('hex')}`);
+
+const { results } = await client.recall({
+  cue: 'first memory',
+  strategies: ['similarity'],
+});
+for (const r of results) {
+  console.log(`  [${r.score.toFixed(2)}] ${r.memory.content}`);
+}
+
+await client.close();
+```
+
+## What's Next
+
+- [Key Concepts](/getting-started/key-concepts/) -- understand memories, importance, entities, and recall strategies
+- [CLI Commands](/cli/commands/) -- explore all CLI operations
+- [Python SDK Reference](/python/client-reference/) -- full Python client API
+- [TypeScript SDK Reference](/typescript/client-reference/) -- full TypeScript client API
+- [API Reference](/api/overview/) -- all 9 operations via gRPC and REST

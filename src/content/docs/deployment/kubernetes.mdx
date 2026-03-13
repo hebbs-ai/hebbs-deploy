@@ -1,0 +1,159 @@
+---
+title: "Kubernetes (Helm)"
+description: "Deploy HEBBS on Kubernetes using the official Helm chart."
+---
+
+The official Helm chart deploys HEBBS as a StatefulSet with persistent storage, health checks, and optional monitoring integration.
+
+## Prerequisites
+
+- Kubernetes 1.26+
+- Helm 3.12+
+- A StorageClass that supports dynamic provisioning
+
+## Quick Install
+
+```bash
+helm install hebbs oci://ghcr.io/hebbs-ai/charts/hebbs \
+  --namespace hebbs \
+  --create-namespace
+```
+
+## Custom Values
+
+Create a `values.yaml` to override defaults:
+
+```yaml
+replicaCount: 1
+
+image:
+  repository: ghcr.io/hebbs-ai/hebbs
+  tag: "0.1.0"
+
+server:
+  grpcPort: 50051
+  metricsPort: 9090
+  logLevel: info
+
+storage:
+  size: 50Gi
+  storageClass: gp3
+
+resources:
+  requests:
+    cpu: "2"
+    memory: 4Gi
+  limits:
+    cpu: "4"
+    memory: 8Gi
+
+config:
+  embedding:
+    batchSize: 32
+    acceleration: auto
+  index:
+    hnswM: 16
+    hnswEfConstruction: 200
+    hnswEfSearch: 100
+  reflect:
+    provider: openai
+    model: gpt-4o-mini
+    enabled: true
+
+tls:
+  enabled: false
+  certSecretName: hebbs-tls
+
+auth:
+  enabled: false
+  tokenSecretName: hebbs-auth
+
+serviceMonitor:
+  enabled: false
+```
+
+Install with custom values:
+
+```bash
+helm install hebbs oci://ghcr.io/hebbs-ai/charts/hebbs \
+  --namespace hebbs \
+  --create-namespace \
+  -f values.yaml
+```
+
+## Values Reference
+
+### Core
+
+| Key | Default | Description |
+|---|---|---|
+| `replicaCount` | `1` | Number of replicas (single-writer architecture) |
+| `image.repository` | `ghcr.io/hebbs-ai/hebbs` | Container image |
+| `image.tag` | Chart appVersion | Image tag |
+
+### Storage
+
+| Key | Default | Description |
+|---|---|---|
+| `storage.size` | `20Gi` | PVC size for data volume |
+| `storage.storageClass` | `""` (default) | Kubernetes StorageClass |
+
+### Resources
+
+| Key | Default | Description |
+|---|---|---|
+| `resources.requests.cpu` | `1` | CPU request |
+| `resources.requests.memory` | `2Gi` | Memory request |
+| `resources.limits.cpu` | `2` | CPU limit |
+| `resources.limits.memory` | `4Gi` | Memory limit |
+
+### TLS
+
+| Key | Default | Description |
+|---|---|---|
+| `tls.enabled` | `false` | Enable TLS for gRPC |
+| `tls.certSecretName` | `""` | Kubernetes Secret containing `tls.crt` and `tls.key` |
+
+### Monitoring
+
+| Key | Default | Description |
+|---|---|---|
+| `serviceMonitor.enabled` | `false` | Create Prometheus ServiceMonitor |
+| `serviceMonitor.interval` | `30s` | Scrape interval |
+
+## Scaling Considerations
+
+HEBBS uses a single-writer architecture. Horizontal scaling is planned for future releases. For now:
+
+- **Vertical scaling** — increase CPU and memory resources for higher throughput.
+- **Storage scaling** — expand PVC size as memory count grows.
+- **Read replicas** — not yet supported; planned for a future release.
+
+## Persistence
+
+The Helm chart creates a PersistentVolumeClaim for HEBBS data. Data survives pod restarts and rescheduling. To ensure data durability:
+
+- Use a StorageClass with `reclaimPolicy: Retain`
+- Configure regular backups (see [Production Checklist](/deployment/production-checklist/))
+
+## Upgrading
+
+```bash
+helm upgrade hebbs oci://ghcr.io/hebbs-ai/charts/hebbs \
+  --namespace hebbs \
+  -f values.yaml
+```
+
+The chart performs a rolling update. HEBBS handles in-place upgrades with automatic data migration when needed.
+
+## Uninstalling
+
+```bash
+helm uninstall hebbs --namespace hebbs
+```
+
+The PVC is **not** deleted by default. To also remove data:
+
+```bash
+kubectl delete pvc -n hebbs data-hebbs-0
+```

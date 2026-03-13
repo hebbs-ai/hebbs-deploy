@@ -1,0 +1,67 @@
+---
+title: "Rust SDK Overview"
+description: "Async Rust client for HEBBS (hebbs-client crate)."
+---
+
+The `hebbs-client` crate provides an async Rust client for the HEBBS cognitive memory engine. It is the highest-performance client available, sharing the same type system as the server.
+
+## Key Features
+
+- **Apache-2.0 licensed** — use freely in commercial and open-source projects.
+- **Fully async** — built on `tonic` and `tokio` for non-blocking gRPC communication.
+- **Builder pattern** — fluent API for constructing requests with compile-time validation.
+- **Retry policies** — configurable exponential backoff with jitter for transient failures.
+- **Zero-copy where possible** — borrows data from response buffers to minimize allocations.
+- **Type-safe** — all HEBBS domain types are represented as Rust structs and enums with exhaustive matching.
+
+## Quick Example
+
+```rust
+use hebbs_client::{HebbsClient, MemoryKind};
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let client = HebbsClient::builder()
+        .address("http://localhost:50051")
+        .timeout(std::time::Duration::from_secs(10))
+        .connect()
+        .await?;
+
+    let memory = client
+        .remember("Customer prefers async communication")
+        .entity("customer-42")
+        .kind(MemoryKind::Episodic)
+        .send()
+        .await?;
+
+    println!("Stored: {}", memory.id);
+
+    let results = client
+        .recall("communication preferences")
+        .entity("customer-42")
+        .top_k(5)
+        .send()
+        .await?;
+
+    for result in &results.memories {
+        println!("[{:.3}] {}", result.score, result.memory.content);
+    }
+
+    Ok(())
+}
+```
+
+## Crate Structure
+
+| Module | Purpose |
+|---|---|
+| `hebbs_client` | `HebbsClient` and builder |
+| `hebbs_client::types` | Domain types (`Memory`, `Edge`, `RecallStrategy`, etc.) |
+| `hebbs_client::error` | Error types and retry policies |
+| `hebbs_client::subscribe` | Streaming subscription handle |
+
+## Next Steps
+
+- [Quick Start](/rust-sdk/quickstart/) — add HEBBS to your Rust project
+- [Client Reference](/rust-sdk/client-reference/) — full API documentation
+- [FFI (C/C++)](/rust-sdk/ffi/) — use HEBBS from C/C++ via FFI bindings

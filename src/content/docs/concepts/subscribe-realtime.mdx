@@ -1,0 +1,49 @@
+---
+title: Subscribe (Real-time)
+description: Stream relevant memories in real-time as new context arrives.
+---
+
+`subscribe` is a bidirectional streaming operation. The client sends a stream of context (e.g., live transcript chunks, chat messages). HEBBS pushes relevant memories back in real-time as new context arrives. This enables agents to surface context during live interactions—sales calls, support chat, voice assistants—without polling.
+
+## What Subscribe Does
+
+Subscribe establishes a long-lived connection. The client streams context updates (text, embeddings, or both). For each update, HEBBS:
+
+1. Determines which memories are relevant to the new context.
+2. Pushes those memories to the client stream.
+3. Deduplicates so the same memory is not sent repeatedly.
+4. Respects confidence thresholds so only sufficiently relevant memories are pushed.
+
+The client receives a stream of memory batches. It can prime the agent's context window, display "relevant past context" to the user, or trigger side effects (e.g., fetch a document) when a high-value memory matches.
+
+## Hierarchical Filtering Pipeline
+
+To stay within latency budgets (subscribe push has an 8ms p99 target), HEBBS uses a multi-stage filter:
+
+1. **Bloom filter**: Fast rejection of memories that cannot possibly match. O(1) per check. Eliminates most candidates.
+2. **Coarse centroid**: Approximate similarity using a coarse representation (e.g., quantized centroid). Cheap filter before expensive search.
+3. **Fine HNSW**: Full vector search for candidates that pass the coarse stage. Returns top-k by similarity.
+
+Each stage reduces the candidate set. Only memories that pass all stages are pushed. The pipeline is tuned so that the vast majority of updates hit the bloom filter and exit early.
+
+## Confidence Thresholds
+
+A memory is pushed only if its relevance score exceeds a configurable threshold. This prevents noise: low-similarity matches that would clutter the agent's context are filtered out.
+
+The threshold can be set per subscription or per entity. Stricter thresholds mean fewer, higher-quality pushes; looser thresholds mean more context but more noise. Tune based on use case.
+
+## Deduplication
+
+The same memory may match multiple context updates in a short window. Subscribe deduplicates: a memory that was pushed recently (within a configurable window) is not pushed again. This avoids spamming the client with repeated "you already have this" context.
+
+Deduplication is scoped per subscription. Different subscriptions (e.g., different agents) do not share dedup state.
+
+## Use Cases
+
+**Live sales calls**: As the prospect speaks, the transcript is streamed to subscribe. HEBBS pushes past notes about this account, similar deals, and objection-handling examples. The agent's context stays current without manual retrieval.
+
+**Support chat**: Each new message is sent to subscribe. Relevant past tickets, FAQs, and resolution patterns are pushed. The agent can reference them in the next response.
+
+**Voice assistants**: Continuous speech is chunked and streamed. Subscribe surfaces recent reminders, preferences, and relevant history. The assistant feels context-aware in real time.
+
+**Real-time dashboards**: A monitoring agent subscribes with incoming event streams. When an event matches past incidents, HEBBS pushes similar resolutions or escalation paths.

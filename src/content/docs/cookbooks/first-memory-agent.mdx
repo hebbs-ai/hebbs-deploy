@@ -1,0 +1,241 @@
+---
+title: "Your First Memory Agent"
+description: "Build a simple memory-augmented agent from scratch."
+---
+
+This cookbook walks you through building a minimal AI agent that uses HEBBS for persistent memory. By the end, you'll have an agent that remembers across conversations and retrieves relevant context automatically.
+
+Examples are provided in both Python and TypeScript. Pick whichever you prefer — the API is nearly identical.
+
+## Prerequisites
+
+- HEBBS server running locally (`localhost:6380`)
+- **Python**: `pip install hebbs`
+- **TypeScript**: `npm install @hebbs/sdk`
+
+## Step 1: Connect to HEBBS
+
+```python
+# Python
+import asyncio
+from hebbs import HebbsClient
+
+async def main():
+    async with HebbsClient.connect("localhost:6380") as client:
+        health = await client.health()
+        print(f"Connected to HEBBS {health.version} ({health.status})")
+
+asyncio.run(main())
+```
+
+```typescript
+// TypeScript
+import { HebbsClient } from '@hebbs/sdk';
+
+const client = new HebbsClient('localhost:6380', { apiKey: process.env.HEBBS_API_KEY });
+await client.connect();
+
+const health = await client.health();
+console.log(`Connected to HEBBS ${health.version} (${health.serving ? 'serving' : 'not serving'})`);
+```
+
+## Step 2: Store Memories
+
+Store a few memories representing a conversation with a customer:
+
+```python
+# Python
+from hebbs import MemoryKind
+
+memories_to_store = [
+    ("Met with Acme Corp CEO. They're expanding to Europe.", MemoryKind.EPISODIC),
+    ("Acme Corp's budget for Q2 is $500K.", MemoryKind.SEMANTIC),
+    ("Always send Acme Corp proposals in PDF format.", MemoryKind.PROCEDURAL),
+    ("Acme's CTO is skeptical about cloud solutions.", MemoryKind.EPISODIC),
+    ("GDPR compliance is a hard requirement for Acme.", MemoryKind.SEMANTIC),
+]
+
+for content, kind in memories_to_store:
+    memory = await client.remember(
+        content=content,
+        entity="acme-corp",
+        kind=kind,
+    )
+    print(f"Stored [{memory.kind.name}]: {memory.content[:50]}...")
+```
+
+```typescript
+// TypeScript
+const memoriesToStore = [
+    { content: "Met with Acme Corp CEO. They're expanding to Europe.", entityId: 'acme-corp' },
+    { content: "Acme Corp's budget for Q2 is $500K.", entityId: 'acme-corp' },
+    { content: 'Always send Acme Corp proposals in PDF format.', entityId: 'acme-corp' },
+    { content: "Acme's CTO is skeptical about cloud solutions.", entityId: 'acme-corp' },
+    { content: 'GDPR compliance is a hard requirement for Acme.', entityId: 'acme-corp' },
+];
+
+for (const params of memoriesToStore) {
+    const memory = await client.remember(params);
+    console.log(`Stored [${memory.kind}]: ${memory.content.slice(0, 50)}...`);
+}
+```
+
+## Step 3: Recall with Different Strategies
+
+### Similarity Recall
+
+Find memories semantically related to a query:
+
+```python
+# Python
+results = await client.recall(
+    query="What do I need to know about Acme's European plans?",
+    entity="acme-corp",
+    strategy="similarity",
+    top_k=3,
+)
+
+print("Similarity recall:")
+for r in results.memories:
+    print(f"  [{r.score:.3f}] {r.memory.content}")
+```
+
+```typescript
+// TypeScript
+const results = await client.recall({
+    cue: "What do I need to know about Acme's European plans?",
+    entityId: 'acme-corp',
+    strategies: ['similarity'],
+    topK: 3,
+});
+
+console.log('Similarity recall:');
+for (const r of results.results) {
+    console.log(`  [${r.score.toFixed(3)}] ${r.memory.content}`);
+}
+```
+
+### Temporal Recall
+
+Find the most recent memories:
+
+```python
+# Python
+temporal = await client.recall(
+    query="What happened recently with Acme?",
+    entity="acme-corp",
+    strategy="temporal",
+    top_k=3,
+)
+
+print("\nTemporal recall:")
+for r in temporal.memories:
+    print(f"  [{r.memory.created_at}] {r.memory.content}")
+```
+
+```typescript
+// TypeScript
+const temporal = await client.recall({
+    cue: 'What happened recently with Acme?',
+    entityId: 'acme-corp',
+    strategies: ['temporal'],
+    topK: 3,
+});
+
+console.log('\nTemporal recall:');
+for (const r of temporal.results) {
+    console.log(`  [${r.memory.createdAt}] ${r.memory.content}`);
+}
+```
+
+## Step 4: Build the Agent Loop
+
+Combine storage and recall into a simple agent:
+
+```python
+# Python
+async def agent_turn(client, entity, user_message):
+    context = await client.recall(
+        query=user_message,
+        entity=entity,
+        strategy="similarity",
+        top_k=3,
+        threshold=0.6,
+    )
+
+    memory_context = "\n".join(
+        f"- {r.memory.content}" for r in context.memories
+    )
+
+    print(f"Retrieved {len(context.memories)} relevant memories")
+    print(f"Context:\n{memory_context}")
+
+    # Here you would call your LLM with the context + user message
+    # response = await llm.generate(prompt=f"Context:\n{memory_context}\n\nUser: {user_message}")
+
+    await client.remember(
+        content=f"User asked: {user_message}",
+        entity=entity,
+        kind=MemoryKind.EPISODIC,
+    )
+```
+
+```typescript
+// TypeScript
+async function agentTurn(client: HebbsClient, entity: string, userMessage: string) {
+    const context = await client.recall({
+        cue: userMessage,
+        entityId: entity,
+        strategies: ['similarity'],
+        topK: 3,
+    });
+
+    const memoryContext = context.results
+        .map(r => `- ${r.memory.content}`)
+        .join('\n');
+
+    console.log(`Retrieved ${context.results.length} relevant memories`);
+    console.log(`Context:\n${memoryContext}`);
+
+    // Here you would call your LLM with the context + user message
+    // const response = await llm.generate({ prompt: `Context:\n${memoryContext}\n\nUser: ${userMessage}` });
+
+    await client.remember({
+        content: `User asked: ${userMessage}`,
+        entityId: entity,
+    });
+}
+```
+
+## Step 5: Run the Agent
+
+```python
+# Python
+async with HebbsClient.connect("localhost:6380") as client:
+    # Store initial memories (step 2) ...
+
+    await agent_turn(client, "acme-corp", "What should I know before the Acme meeting?")
+    await agent_turn(client, "acme-corp", "How should I address their cloud concerns?")
+
+    count = await client.count("acme-corp")
+    print(f"\nTotal memories for acme-corp: {count}")
+```
+
+```typescript
+// TypeScript
+// Store initial memories (step 2) ...
+
+await agentTurn(client, 'acme-corp', 'What should I know before the Acme meeting?');
+await agentTurn(client, 'acme-corp', 'How should I address their cloud concerns?');
+
+const count = await client.count();
+console.log(`\nTotal memories: ${count}`);
+
+await client.close();
+```
+
+## What's Next
+
+- [Multi-Strategy Recall](/cookbooks/multi-strategy-recall/) — understand when to use each recall strategy
+- [Entity-Scoped Memory](/cookbooks/entity-scoped-memory/) — manage memories for multiple customers
+- [Voice Sales Agent](/cookbooks/voice-sales-agent/) — build a full sales agent with HEBBS

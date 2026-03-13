@@ -1,0 +1,143 @@
+---
+title: "Development Setup"
+description: "Clone, build, test, and contribute to HEBBS."
+---
+
+This guide covers everything you need to build HEBBS from source, run tests, and submit contributions.
+
+## Prerequisites
+
+| Tool | Version | Purpose |
+|---|---|---|
+| Rust | 1.75+ | Compiler and cargo |
+| protoc | 3.21+ | Protocol buffer compiler |
+| Git | 2.x | Source control |
+| Docker | 24+ | (Optional) Integration tests |
+
+### Install Rust
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+rustup default stable
+```
+
+### Install protoc
+
+```bash
+# macOS
+brew install protobuf
+
+# Ubuntu/Debian
+sudo apt-get install -y protobuf-compiler
+
+# Verify
+protoc --version
+```
+
+## Clone and Build
+
+```bash
+git clone https://github.com/hebbs-ai/hebbs.git
+cd hebbs
+cargo build
+```
+
+For a release build with optimizations:
+
+```bash
+cargo build --release
+```
+
+## Run Tests
+
+### Unit Tests
+
+```bash
+cargo test
+```
+
+### Integration Tests
+
+Integration tests require a running HEBBS server:
+
+```bash
+# Start a test server
+cargo run --release -- --config tests/test-config.toml &
+
+# Run integration tests
+cargo test --test integration
+
+# Stop the test server
+kill %1
+```
+
+### Property-Based Tests
+
+HEBBS uses `proptest` for invariant verification:
+
+```bash
+cargo test --features proptest
+```
+
+### Run All Checks
+
+```bash
+# Full CI-equivalent check
+cargo fmt --check
+cargo clippy -- -D warnings
+cargo test
+cargo test --test integration
+cargo bench -- --test
+```
+
+## Run Benchmarks
+
+```bash
+# Run all Criterion benchmarks
+cargo bench
+
+# Run a specific benchmark
+cargo bench --bench hnsw_bench
+```
+
+See [Running Benchmarks](/benchmarks/running/) for details.
+
+## Project Structure
+
+```
+hebbs/
+├── Cargo.toml          # Workspace root
+├── crates/
+│   ├── hebbs-core/     # Core engine (operation dispatch)
+│   ├── hebbs-storage/  # RocksDB storage layer
+│   ├── hebbs-index/    # HNSW, temporal, graph indexes
+│   ├── hebbs-embed/    # ONNX embedding engine
+│   ├── hebbs-reflect/  # Reflection pipeline
+│   ├── hebbs-server/   # gRPC server (tonic)
+│   ├── hebbs-client/   # Rust client SDK
+│   ├── hebbs-ffi/      # C/C++ FFI bindings
+│   ├── hebbs-cli/      # CLI tool
+│   ├── hebbs-bench/    # Benchmark tool
+│   ├── hebbs-types/    # Shared types and protobuf
+│   └── hebbs-test/     # Test utilities
+├── proto/              # Protobuf service definitions
+├── benches/            # Criterion benchmarks
+└── tests/              # Integration tests
+```
+
+## PR Process
+
+1. **Fork** the repository and create a feature branch.
+2. **Write code** following the conventions in [Architecture Guide](/contributing/architecture-guide/) and [Engineering Principles](/contributing/principles/).
+3. **Add tests** — unit tests in `#[cfg(test)] mod tests`, integration tests in `tests/`.
+4. **Run the full check suite** — `cargo fmt`, `cargo clippy`, `cargo test`, `cargo bench`.
+5. **Write a descriptive commit message** — what changed and why.
+6. **Submit a PR** — fill out the template with description, test plan, and benchmark results (if applicable).
+7. **Sign the CLA** — required for first-time contributors. See [CLA](/contributing/cla/).
+
+## Code Review Expectations
+
+- All PRs require at least one approving review.
+- Hot-path changes require Criterion benchmark results showing no > 10% p99 regression.
+- Public API changes require documentation updates.
+- All CI checks must pass.

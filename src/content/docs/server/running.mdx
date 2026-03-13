@@ -1,0 +1,45 @@
+---
+title: Running the Server
+description: Start hebbs-server, verify health, and understand default ports.
+---
+
+## Starting the Server
+
+Start the HEBBS server with default configuration:
+
+```bash
+hebbs-server
+```
+
+## Default Ports
+
+- **gRPC:** 6380
+- **HTTP/REST:** 6381
+
+## Bootstrap API Key
+
+On first start, HEBBS auto-generates a bootstrap API key and prints it to the console. Save it and export it for the CLI:
+
+```bash
+export HEBBS_API_KEY="hb_..."
+```
+
+To disable auth for local development: `HEBBS_AUTH_ENABLED=false hebbs-server`.
+
+## Health Check
+
+Verify the server is running:
+
+```bash
+curl http://localhost:6381/v1/health/ready
+```
+
+## Basic Config File
+
+Create a `hebbs.toml` file to customize server behavior:
+
+```toml
+[server]
+grpc_port = 6380
+http_port = 6381
+```

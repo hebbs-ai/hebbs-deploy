@@ -1,0 +1,122 @@
+---
+title: Protobuf Schema
+description: Complete Protocol Buffers schema reference for HEBBS gRPC API.
+---
+
+## Overview
+
+The HEBBS gRPC API is defined in `hebbs.proto`. The schema defines services, messages, and RPC methods. Use this reference when generating client stubs or implementing custom integrations.
+
+## Services
+
+| Service | Description |
+|---------|-------------|
+| **MemoryService** | Write and read operations: Remember, Recall, Revise, Forget, Prime. |
+| **SubscribeService** | Bidirectional streaming for real-time memory push. |
+| **ReflectService** | Reflection pipeline: Reflect, GetInsights, policy configuration. |
+| **HealthService** | Liveness, readiness, and metrics. |
+
+## Schema Location
+
+The canonical schema file is `hebbs.proto` in the HEBBS repository (`hebbs/proto/` or equivalent). Regenerate clients with:
+
+```bash
+protoc --go_out=. --go-grpc_out=. hebbs.proto
+# or equivalent for your language
+```
+
+## Full Schema Listing
+
+## Tenant Scoping
+
+Every request message includes an optional `tenant_id` field. In authenticated deployments, the server's `TenantInterceptor` validates that the request's `tenant_id` (if provided) matches the API key's bound tenant. The field structure is:
+
+```protobuf
+message RememberRequest {
+  string content = 1;
+  optional float importance = 2;
+  google.protobuf.Struct context = 3;
+  optional string entity_id = 4;
+  repeated Edge edges = 5;
+  optional string tenant_id = 6;  // tenant isolation boundary
+}
+```
+
+The same `tenant_id` field appears in `GetRequest`, `RecallRequest`, `PrimeRequest`, `ReviseRequest`, `ForgetRequest`, `SubscribeRequest`, `FeedRequest`, `CloseSubscriptionRequest`, `ReflectRequest`, and `GetInsightsRequest`.
+
+(Placeholder: Full schema listing will be generated from `hebbs.proto` or linked to the source file. Key message types include: `Memory`, `RememberRequest`, `RememberResponse`, `RecallRequest`, `RecallResponse`, `ReviseRequest`, `ForgetRequest`, `ForgetResponse`, `PrimeRequest`, `PrimeResponse`, `SubscribeRequest`, `SubscribePush`, `ReflectRequest`, `ReflectResponse`, `GetInsightsRequest`, `GetInsightsResponse`, `ReflectPrepareRequest`, `ReflectPrepareResponse`, `ReflectCommitRequest`, `ReflectCommitResponse`, `ClusterPrompt`, `ProducedInsightInput`, and health-related messages.)
+
+## Agent-Driven Reflect RPCs
+
+The `ReflectService` includes two additional RPCs for agent-driven two-step reflection:
+
+```protobuf
+service ReflectService {
+  rpc Reflect(ReflectRequest) returns (ReflectResponse);
+  rpc GetInsights(GetInsightsRequest) returns (GetInsightsResponse);
+  rpc ReflectPrepare(ReflectPrepareRequest) returns (ReflectPrepareResponse);
+  rpc ReflectCommit(ReflectCommitRequest) returns (ReflectCommitResponse);
+}
+```
+
+### ReflectPrepare
+
+Gathers memories, clusters them, and builds LLM prompts without calling any LLM.
+
+```protobuf
+message ReflectPrepareRequest {
+  ReflectScope scope = 1;
+  optional string tenant_id = 2;
+}
+
+message ClusterMemorySummary {
+  string memory_id = 1;
+  string content = 2;
+  float importance = 3;
+  optional string entity_id = 4;
+  uint64 created_at = 5;
+}
+
+message ClusterPrompt {
+  uint32 cluster_id = 1;
+  uint32 member_count = 2;
+  string proposal_system_prompt = 3;
+  string proposal_user_prompt = 4;
+  repeated string memory_ids = 5;
+  string validation_context = 6;
+  repeated ClusterMemorySummary memories = 7;
+}
+
+message ReflectPrepareResponse {
+  string session_id = 1;
+  uint64 memories_processed = 2;
+  repeated ClusterPrompt clusters = 3;
+  uint64 existing_insight_count = 4;
+}
+```
+
+### ReflectCommit
+
+Stores agent-produced insights from a previous `ReflectPrepare` call. No LLM is called.
+
+```protobuf
+message ProducedInsightInput {
+  string content = 1;
+  float confidence = 2;
+  repeated string source_memory_ids = 3;
+  repeated string tags = 4;
+  optional uint32 cluster_id = 5;
+}
+
+message ReflectCommitRequest {
+  string session_id = 1;
+  repeated ProducedInsightInput insights = 2;
+  optional string tenant_id = 3;
+}
+
+message ReflectCommitResponse {
+  uint64 insights_created = 1;
+}
+```
+
+Sessions are ephemeral (10-minute TTL). Source memory IDs in `ProducedInsightInput` must be a subset of the IDs returned in the corresponding `ReflectPrepareResponse` cluster.

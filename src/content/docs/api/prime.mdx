@@ -1,0 +1,72 @@
+---
+title: prime
+description: Pre-load session context by entity, blending temporal and similarity recall.
+---
+
+## Overview
+
+The `prime` operation pre-loads session context for an entity. It blends recent (temporal) memories with semantically relevant (similarity) memories, giving an agent a ready-made context window at session start. Use `prime` when initializing a conversation or task so the agent has immediate access to relevant history without a separate recall call.
+
+## API Access
+
+| Protocol | Service/Method | Endpoint |
+|----------|----------------|----------|
+| **gRPC** | `MemoryService.Prime` | — |
+| **REST** | POST | `/v1/prime` |
+
+## Request Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `entity_id` | string | Yes | Entity whose context to load. |
+| `max_memories` | int | No | Maximum total memories to return (default 20). |
+| `similarity_cue` | string | No | Optional cue for similarity component. If omitted, temporal-only blend. |
+| `scoring_weights` | object | No | Override composite scoring weights. Fields: `w_relevance` (default 0.5), `w_recency` (default 0.2), `w_importance` (default 0.2), `w_reinforcement` (default 0.1). See [Composite Scoring](/concepts/recall-strategies/#composite-scoring). |
+| `tenant_id` | string | No | Tenant scope for data isolation. Normally derived from the API key by the server. Override only when running without authentication or for cross-tenant administrative operations. Default: derived from API key or `"default"`. |
+
+> **Note:** For REST, `tenant_id` is derived from the `Authorization` header — not passed in the request body. For gRPC, it can be set explicitly in the request message but is overridden by the API key's tenant when auth is enabled.
+
+## Response
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `results` | array | Each result contains `memory`, `score` (composite), `relevance` (raw cosine similarity), and `strategy_details`. |
+| `temporal_count` | int | Number of memories from temporal strategy. |
+| `similarity_count` | int | Number of memories from similarity strategy. |
+
+## REST Examples
+
+All examples assume the `HEBBS_API_KEY` environment variable is set. See [Authentication](/api/rest-endpoints/#authentication).
+
+### Prime with default scoring
+
+```bash
+curl -s -X POST http://localhost:6381/v1/prime \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $HEBBS_API_KEY" \
+  -d '{"entity_id": "customer-42", "similarity_cue": "account history"}' | jq .
+```
+
+### Prime biased toward recent memories
+
+```bash
+curl -s -X POST http://localhost:6381/v1/prime \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $HEBBS_API_KEY" \
+  -d '{
+    "entity_id": "customer-42",
+    "similarity_cue": "recent interactions",
+    "scoring_weights": {
+      "w_relevance": 0.2,
+      "w_recency": 0.6,
+      "w_importance": 0.1,
+      "w_reinforcement": 0.1
+    }
+  }' | jq .
+```
+
+## Blending
+
+Prime uses a configurable blend of temporal and similarity recall. The ratio determines how much recent history vs. semantically relevant history is included. Typical use: 50/50 or 60/40 temporal/similarity for conversational agents.
+
+Results are ranked by composite score, which blends relevance, recency, importance, and reinforcement. Pass `scoring_weights` to customize the blend — for example, to bias toward recent memories for conversation priming.

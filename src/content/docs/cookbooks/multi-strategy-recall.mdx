@@ -1,0 +1,240 @@
+---
+title: "Multi-Strategy Recall"
+description: "Compare all four recall strategies on the same dataset."
+---
+
+HEBBS provides four recall strategies, each optimized for a different access pattern. This cookbook ingests a sample dataset and queries it with all four strategies to illustrate their strengths.
+
+## Sample Dataset
+
+We'll create a set of interconnected memories representing a sales engagement:
+
+```python
+import asyncio
+from hebbs import HebbsClient, MemoryKind, Edge, EdgeType
+
+async def ingest_sample_data(client):
+    entity = "demo-multi-strategy"
+
+    m1 = await client.remember(
+        content="Initial discovery call with Acme Corp. They need a CRM solution.",
+        entity=entity, kind=MemoryKind.EPISODIC,
+    )
+
+    m2 = await client.remember(
+        content="Acme's current CRM is Salesforce but they're unhappy with pricing.",
+        entity=entity, kind=MemoryKind.SEMANTIC,
+        edges=[Edge(target_id=m1.id, edge_type=EdgeType.PRECEDED_BY, weight=1.0)],
+    )
+
+    m3 = await client.remember(
+        content="Sent proposal to Acme. $200K annual license.",
+        entity=entity, kind=MemoryKind.EPISODIC,
+        edges=[Edge(target_id=m2.id, edge_type=EdgeType.CAUSED_BY, weight=0.9)],
+    )
+
+    m4 = await client.remember(
+        content="Acme pushed back on pricing. Asked for 20% discount.",
+        entity=entity, kind=MemoryKind.EPISODIC,
+        edges=[Edge(target_id=m3.id, edge_type=EdgeType.CAUSED_BY, weight=1.0)],
+    )
+
+    m5 = await client.remember(
+        content="Price sensitivity in enterprise CRM deals correlates with contract length.",
+        entity=entity, kind=MemoryKind.SEMANTIC,
+    )
+
+    return entity
+```
+
+## Strategy 1: Similarity
+
+Finds memories whose content is semantically closest to the query.
+
+```python
+results = await client.recall(
+    "What pricing concerns does Acme have?",
+    entity_id=entity,
+    strategies=["similarity"],
+    top_k=5,
+)
+
+print("SIMILARITY RECALL:")
+for r in results.memories:
+    print(f"  [{r.score:.3f}] {r.memory.content}")
+```
+
+**Best for:** General-purpose queries where you want the most semantically relevant memories regardless of time or causality.
+
+## Strategy 2: Temporal
+
+Returns memories ordered by time proximity — most recent first or closest to a reference time.
+
+```python
+results = await client.recall(
+    "What happened most recently with Acme?",
+    entity_id=entity,
+    strategies=["temporal"],
+    top_k=5,
+)
+
+print("TEMPORAL RECALL:")
+for r in results.memories:
+    print(f"  [{r.memory.created_at}] {r.memory.content}")
+```
+
+**Best for:** "What happened recently?" or "What was the sequence of events?"
+
+## Strategy 3: Causal
+
+Follows `CausedBy` edges to trace chains of cause and effect.
+
+```python
+results = await client.recall(
+    "What led to the pricing pushback?",
+    entity_id=entity,
+    strategies=["causal"],
+    top_k=5,
+)
+
+print("CAUSAL RECALL:")
+for r in results.memories:
+    print(f"  [{r.score:.3f}] {r.memory.content}")
+```
+
+**Best for:** Understanding why something happened, tracing decision chains, root cause analysis.
+
+## Strategy 4: Analogical
+
+Finds patterns across different contexts — memories that are structurally or thematically similar even if the surface-level content differs.
+
+```python
+results = await client.recall(
+    "Have we seen similar pricing dynamics in other deals?",
+    entity_id=entity,
+    strategies=["analogical"],
+    top_k=5,
+)
+
+print("ANALOGICAL RECALL:")
+for r in results.memories:
+    print(f"  [{r.score:.3f}] {r.memory.content}")
+```
+
+**Best for:** Cross-domain pattern recognition, learning from similar past experiences.
+
+## Side-by-Side Comparison
+
+```python
+query = "Tell me about the pricing situation"
+
+for strategy in ["similarity", "temporal", "causal", "analogical"]:
+    results = await client.recall(
+        query, entity_id=entity, strategies=[strategy], top_k=3,
+    )
+    print(f"\n{strategy.upper()}:")
+    for r in results.memories:
+        print(f"  [{r.score:.3f}] {r.memory.content[:60]}...")
+    print(f"  Latency: {results.latency_ms:.1f}ms")
+```
+
+## Choosing the Right Strategy
+
+| Scenario | Recommended Strategy |
+|---|---|
+| "Find relevant context for this question" | Similarity |
+| "What happened recently?" | Temporal |
+| "Why did this happen?" | Causal |
+| "Have we seen this pattern before?" | Analogical |
+| "Give me everything relevant" | Similarity (broadest) |
+
+## Advanced: Tuning Strategy Parameters
+
+The examples above use default parameters, which work well for most workloads. When you need finer control, pass a `RecallStrategyConfig` to override per-strategy behavior.
+
+### Default Reference
+
+| Parameter | Default | What happens when omitted |
+|---|---|---|
+| `ef_search` | `50` | HNSW searches 50 candidates. Good accuracy/latency tradeoff for most datasets. |
+| `time_range` | `None` (unbounded) | Temporal recall returns all memories newest-first up to `top_k`. |
+| `seed_memory_id` | `None` (auto-detect) | Causal recall finds the best seed by embedding the cue. |
+| `max_depth` | `5` (bounded at 10) | Causal graph walk goes 5 hops deep. |
+| `edge_types` | `None` (all types) | Causal recall follows all edge types. |
+| `analogical_alpha` | `0.5` (balanced) | Equal weight to embedding similarity and structural similarity. |
+| `cue_context` | `None` | No additional context for disambiguation. |
+
+### Tuned Causal Recall
+
+Start from a known memory and trace only `CausedBy` edges:
+
+```python
+from hebbs import RecallStrategyConfig
+
+results = await client.recall(
+    "What led to the pricing pushback?",
+    entity_id=entity,
+    strategies=["causal"],
+    strategy_config=RecallStrategyConfig(
+        seed_memory_id=m4.id,
+        max_depth=8,
+        edge_types=["CausedBy"],
+    ),
+)
+
+print("CAUSAL (tuned):")
+for r in results.memories:
+    print(f"  [depth {r.strategy_details[0].depth}] {r.memory.content}")
+```
+
+### Tuned Analogical Recall
+
+Favor structural patterns over embedding similarity:
+
+```python
+results = await client.recall(
+    "Have we seen similar pricing dynamics?",
+    entity_id=entity,
+    strategies=["analogical"],
+    strategy_config=RecallStrategyConfig(analogical_alpha=0.2),
+)
+
+print("ANALOGICAL (structure-heavy):")
+for r in results.memories:
+    print(f"  [{r.score:.3f}] {r.memory.content}")
+```
+
+### Tuned Temporal Recall
+
+Restrict to a specific time window:
+
+```python
+from hebbs import RecallStrategyConfig, TimeRange
+
+results = await client.recall(
+    "customer interactions",
+    entity_id=entity,
+    strategies=["temporal"],
+    strategy_config=RecallStrategyConfig(
+        time_range=TimeRange(start=1709251200000000, end=1711929600000000),
+    ),
+)
+```
+
+### Multi-Strategy with Tuning
+
+Combine strategies with per-strategy config:
+
+```python
+results = await client.recall(
+    "Acme pricing situation",
+    entity_id=entity,
+    strategies=["similarity", "causal"],
+    strategy_config=RecallStrategyConfig(
+        ef_search=200,
+        max_depth=6,
+        edge_types=["CausedBy", "FollowedBy"],
+    ),
+    top_k=10,
+)
+```

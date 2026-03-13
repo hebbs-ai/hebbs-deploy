@@ -1,0 +1,128 @@
+---
+title: "Error Handling"
+description: "Handle HEBBS errors gracefully in Python."
+---
+
+The HEBBS Python SDK provides a structured exception hierarchy that maps gRPC status codes to meaningful Python exceptions. All exceptions inherit from `HebbsError`.
+
+## Exception Hierarchy
+
+```
+HebbsError
+├── HebbsConnectionError      # Failed to connect or lost connection
+├── HebbsTimeoutError          # Operation exceeded deadline
+├── HebbsNotFoundError         # Memory or entity not found
+├── HebbsUnavailableError      # Server temporarily unavailable
+├── HebbsInvalidArgumentError  # Bad request parameters
+└── HebbsInternalError         # Server-side error
+```
+
+## Exception Details
+
+### HebbsError
+
+Base class for all HEBBS exceptions. Every exception includes:
+
+| Attribute | Type | Description |
+|---|---|---|
+| `message` | `str` | Human-readable error description |
+| `code` | `str` | Machine-readable error code |
+| `details` | `dict \| None` | Additional context (when available) |
+
+### HebbsConnectionError
+
+Raised when the client cannot establish or maintain a connection to the server.
+
+**Common causes:** Server not running, incorrect address, network partition, TLS misconfiguration.
+
+### HebbsTimeoutError
+
+Raised when an operation exceeds its deadline.
+
+**Common causes:** Server overloaded, network latency, operation timeout set too low.
+
+### HebbsNotFoundError
+
+Raised when a requested memory or entity does not exist.
+
+**Common causes:** Invalid memory ID, memory was deleted via `forget()`.
+
+### HebbsUnavailableError
+
+Raised when the server is temporarily unable to handle the request.
+
+**Common causes:** Server starting up, compaction in progress, resource exhaustion.
+
+### HebbsInvalidArgumentError
+
+Raised when request parameters fail validation.
+
+**Common causes:** Empty content, invalid entity name, unknown recall strategy.
+
+### HebbsInternalError
+
+Raised when the server encounters an unexpected error.
+
+**Common causes:** Storage corruption, embedding model failure, internal bug.
+
+## Handling Errors
+
+### Basic Pattern
+
+```python
+from hebbs import HebbsClient, HebbsNotFoundError, HebbsError
+
+async with HebbsClient.connect("localhost:50051") as client:
+    try:
+        memory = await client.get("nonexistent-id")
+    except HebbsNotFoundError:
+        print("Memory not found — it may have been deleted")
+    except HebbsError as e:
+        print(f"HEBBS error: {e.message} (code: {e.code})")
+```
+
+### Retry Pattern
+
+For transient errors like timeouts and unavailability, implement exponential backoff:
+
+```python
+import asyncio
+from hebbs import HebbsClient, HebbsTimeoutError, HebbsUnavailableError
+
+async def recall_with_retry(client, query, entity, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            return await client.recall(query=query, entity=entity)
+        except (HebbsTimeoutError, HebbsUnavailableError):
+            if attempt == max_retries - 1:
+                raise
+            wait = 2 ** attempt  # 1s, 2s, 4s
+            await asyncio.sleep(wait)
+```
+
+### Connection Recovery
+
+The client automatically reconnects on transient failures. For long-running applications, handle connection errors at the application level:
+
+```python
+from hebbs import HebbsClient, HebbsConnectionError
+
+async def run_agent():
+    while True:
+        try:
+            async with HebbsClient.connect("localhost:50051") as client:
+                await agent_loop(client)
+        except HebbsConnectionError:
+            print("Lost connection, reconnecting in 5s...")
+            await asyncio.sleep(5)
+```
+
+## gRPC Status Code Mapping
+
+| gRPC Code | Python Exception |
+|---|---|
+| `UNAVAILABLE` | `HebbsConnectionError` or `HebbsUnavailableError` |
+| `DEADLINE_EXCEEDED` | `HebbsTimeoutError` |
+| `NOT_FOUND` | `HebbsNotFoundError` |
+| `INVALID_ARGUMENT` | `HebbsInvalidArgumentError` |
+| `INTERNAL` | `HebbsInternalError` |

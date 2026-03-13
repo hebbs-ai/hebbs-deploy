@@ -1,0 +1,96 @@
+---
+title: "Storage Layer"
+description: "RocksDB-based persistent storage with column families and crash safety."
+---
+
+HEBBS uses embedded RocksDB as its sole storage engine. There are no external database dependencies — all data lives in a single RocksDB instance managed by the HEBBS process.
+
+## Why RocksDB
+
+- **Embedded** — no separate process to manage. Single-binary deployment.
+- **LSM-tree architecture** — excellent write throughput with bounded write amplification.
+- **Column families** — logical separation of data types with independent tuning.
+- **WriteBatch** — atomic multi-key writes across column families for crash consistency.
+- **Compression** — LZ4 and Zstd compression reduce storage footprint.
+- **Battle-tested** — used in production at Facebook, CockroachDB, TiKV, and many other systems.
+
+## Column Families
+
+HEBBS organizes data into column families, each optimized for its access pattern:
+
+| Column Family | Key Format | Value | Purpose |
+|---|---|---|---|
+| `memories` | `{entity}:{memory_id}` | Serialized `Memory` | Primary memory storage |
+| `edges` | `{source_id}:{edge_type}:{target_id}` | Serialized `Edge` | Graph relationships |
+| `hnsw` | `{entity}:{layer}:{node_id}` | Neighbor list | HNSW graph structure |
+| `temporal` | `{entity}:{timestamp}:{memory_id}` | Memory ID | Time-ordered index |
+| `metadata` | `{entity}:meta` | Entity metadata | Entity-level configuration |
+| `system` | Various | Various | Internal state (compaction cursors, version) |
+
+## Key Encoding
+
+Keys are encoded as byte strings using a scheme that ensures correct lexicographic ordering:
+
+- **Entity prefix** — all per-entity data shares a common prefix, enabling efficient prefix iteration and entity-wide deletion.
+- **Timestamps** — encoded as big-endian 64-bit integers for correct temporal ordering.
+- **Memory IDs** — ULIDs (Universally Unique Lexicographically Sortable Identifiers) for time-ordered uniqueness.
+
+## Write Path
+
+All writes go through a `WriteBatch` that atomically updates multiple column families:
+
+```
+WriteBatch:
+  PUT memories/{entity}:{id} → serialized memory
+  PUT temporal/{entity}:{timestamp}:{id} → id
+  PUT hnsw/{entity}:0:{id} → neighbor list
+  PUT edges/{source}:RELATED_TO:{target} → edge data  (if edges provided)
+```
+
+The `WriteBatch` is committed as a single atomic operation. If the process crashes between any two puts, none of them are visible — the database remains in its previous consistent state.
+
+## Write-Ahead Log (WAL)
+
+RocksDB writes every `WriteBatch` to a write-ahead log before applying it to memtables. This ensures durability:
+
+- If the process crashes after the WAL write but before the memtable update, RocksDB replays the WAL on recovery.
+- WAL is fsynced according to the configured sync policy (`sync = true` for production).
+
+```toml
+[storage.rocksdb]
+wal_dir = "/data/wal"
+sync = true
+```
+
+## Crash Recovery
+
+HEBBS is designed to recover from `kill -9` at any point:
+
+1. **WAL replay** — on startup, RocksDB replays any un-applied WAL entries.
+2. **Index rebuild** — if the HNSW index is inconsistent (detected via checksum), it is rebuilt from the `memories` column family. This is rare but handled automatically.
+3. **Consistency check** — HEBBS runs a lightweight consistency check on startup to verify that all column families are synchronized.
+
+## Compaction
+
+RocksDB's LSM-tree architecture requires periodic compaction to merge sorted runs and reclaim space. HEBBS configures compaction for low-latency reads:
+
+- **Level compaction** — default compaction style with size-based level targets.
+- **Rate limiting** — compaction I/O is rate-limited to avoid interfering with foreground operations.
+- **Background threads** — compaction runs on dedicated background threads.
+
+```toml
+[storage.rocksdb]
+max_background_compactions = 4
+compaction_rate_limit = "100MB"
+```
+
+## Tuning
+
+Key tuning parameters for different workloads:
+
+| Parameter | Small (< 100K) | Medium (< 1M) | Large (< 10M) |
+|---|---|---|---|
+| `block_cache_size` | 256 MB | 2 GB | 8 GB |
+| `write_buffer_size` | 32 MB | 64 MB | 128 MB |
+| `max_write_buffer_number` | 2 | 3 | 4 |
+| `max_background_compactions` | 2 | 4 | 8 |
