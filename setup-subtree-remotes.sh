@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Configure subtree remotes for this workspace.
+# Safe to run repeatedly: existing remotes are updated to the expected URL.
+declare -A REMOTES=(
+  [hebbs-engine]="git@github.com:hebbs-ai/hebbs.git"
+  [hebbs-ts]="git@github.com:hebbs-ai/hebbs-typescript.git"
+  [hebbs-py]="git@github.com:hebbs-ai/hebbs-python.git"
+  [hebbs-web]="https://github.com/hebbs-ai/hebbs-website.git"
+  [hebbs-docs]="git@github.com:hebbs-ai/hebbs-docs.git"
+  [hebbs-deploy]="https://github.com/hebbs-ai/hebbs-deploy.git"
+  [hebbs-skill]="git@github.com:hebbs-ai/hebbs-skill.git"
+  [homebrew-tap]="git@github.com:hebbs-ai/homebrew-tap.git"
+)
+
+for remote in "${!REMOTES[@]}"; do
+  url="${REMOTES[$remote]}"
+  if git remote get-url "$remote" >/dev/null 2>&1; then
+    git remote set-url "$remote" "$url"
+    echo "updated $remote -> $url"
+  else
+    git remote add "$remote" "$url"
+    echo "added $remote -> $url"
+  fi
+done
+
+echo "Subtree remotes are configured."
